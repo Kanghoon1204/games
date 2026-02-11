@@ -21,7 +21,14 @@ app.use(cors());
 app.use(express.json());
 
 // 정적 파일 서빙 (client 폴더)
-app.use(express.static(path.join(__dirname, '../client')));
+const clientPath = path.join(__dirname, '../client');
+console.log('Serving static files from:', clientPath);
+app.use(express.static(clientPath));
+
+// SPA 라우팅 - 모든 HTML 요청을 index.html로
+app.get('/', (req, res) => {
+  res.sendFile(path.join(clientPath, 'index.html'));
+});
 
 // 방 저장소
 const rooms = new Map();
