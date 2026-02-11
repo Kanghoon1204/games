@@ -2,91 +2,148 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#f8fafc">
   <title>울릉 한 접시 - 방</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
-    .mono { font-variant-numeric: tabular-nums; }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    * { font-family: 'Noto Sans KR', sans-serif; -webkit-tap-highlight-color: transparent; }
+    .btn { transition: all 0.2s; }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .card { background: white; border-radius: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .input-focus:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
+    .badge { font-size: 0.7rem; padding: 0.25rem 0.5rem; border-radius: 9999px; }
+    .loading { animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen">
-  <div class="max-w-4xl mx-auto p-4 md:p-6 space-y-6">
+  <div class="max-w-2xl mx-auto p-4 pb-8">
 
-    <header class="flex items-center justify-between">
-      <h1 class="text-xl md:text-2xl font-bold">울릉 한 접시</h1>
-      <span id="badge" class="text-xs px-2 py-1 rounded bg-slate-200">연결 중...</span>
+    <!-- 헤더 -->
+    <header class="flex items-center justify-between py-4">
+      <a href="/" class="flex items-center gap-2">
+        <span class="text-2xl">🍽️</span>
+        <h1 class="text-xl font-bold">울릉 한 접시</h1>
+      </a>
+      <div id="badge" class="badge bg-slate-200 text-slate-600">연결 중...</div>
     </header>
 
-    <!-- 방 목록 -->
-    <section id="view-list" class="bg-white rounded-xl shadow p-4 md:p-6">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="font-semibold">방 목록</h2>
-        <button id="btnRefresh" class="btn bg-slate-200 hover:bg-slate-300 rounded px-3 py-2 text-sm">새로고침</button>
-      </div>
-      <div id="roomsEmpty" class="hidden text-sm text-slate-500 border rounded p-3">
-        입장 가능한 방이 없습니다. 새로 만들어보세요!
-      </div>
-      <ul id="roomsList" class="grid gap-3 md:grid-cols-2"></ul>
-    </section>
+    <!-- 뷰: 로비 (방 목록 + 생성) -->
+    <div id="view-lobby" class="space-y-4">
 
-    <!-- 새 방 만들기 -->
-    <section id="view-create" class="bg-white rounded-xl shadow p-4 md:p-6">
-      <h2 class="font-semibold mb-4">새 방 만들기</h2>
+      <!-- 방 목록 -->
+      <section class="card p-4">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="font-bold text-lg">방 목록</h2>
+          <button id="btnRefresh" class="btn text-sm text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            새로고침
+          </button>
+        </div>
 
-      <label class="text-sm block mb-1">닉네임 (방장)</label>
-      <input id="hostName" type="text" placeholder="예: 상회장"
-        class="w-full border rounded px-3 py-2 mb-4" maxlength="20">
+        <div id="roomsLoading" class="text-center py-8 text-slate-400 loading">
+          방 목록을 불러오는 중...
+        </div>
 
-      <div class="mb-4 text-sm space-y-2">
-        <div class="font-medium">진행 방식</div>
-        <label class="flex items-center gap-2">
-          <input type="radio" name="mode" value="board" checked>
-          <span>보드게임 (방장이 상품 수동 등록)</span>
-        </label>
-        <label class="flex items-center gap-2">
-          <input type="radio" name="mode" value="web">
-          <span>웹 전용 (상품 자동 결정)</span>
-        </label>
-      </div>
+        <div id="roomsEmpty" class="hidden text-center py-8">
+          <div class="text-4xl mb-2">🏠</div>
+          <p class="text-slate-500">입장 가능한 방이 없습니다</p>
+          <p class="text-slate-400 text-sm">아래에서 새 방을 만들어보세요!</p>
+        </div>
 
-      <button id="btnCreate" class="btn w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded px-4 py-2">
-        방 만들기
-      </button>
-      <div id="errCreate" class="hidden mt-3 p-3 rounded bg-rose-50 border border-rose-200 text-rose-700 text-sm"></div>
-    </section>
+        <ul id="roomsList" class="space-y-2 hidden"></ul>
+      </section>
 
-    <!-- 방장 대기실 -->
-    <section id="view-host" class="hidden bg-white rounded-xl shadow p-4 md:p-6">
-      <div class="flex items-center justify-between mb-2">
-        <h2 class="font-semibold">대기실: <span id="roomId" class="mono"></span></h2>
-        <div class="text-sm">참가자 <span id="count" class="font-bold">1</span> / 8</div>
-      </div>
-      <div class="text-xs text-slate-600 mb-4" id="modeInfo"></div>
+      <!-- 새 방 만들기 -->
+      <section class="card p-4">
+        <h2 class="font-bold text-lg mb-4">새 방 만들기</h2>
 
-      <div class="grid md:grid-cols-2 gap-4">
-        <div class="border rounded-lg p-4">
-          <h3 class="font-semibold mb-2">참가 링크</h3>
-          <div class="flex items-center gap-2">
-            <input id="shareLink" class="w-full border rounded px-3 py-2 text-xs" readonly>
-            <button id="btnCopy" class="btn bg-slate-800 text-white rounded px-3 py-2 text-sm">복사</button>
+        <div class="space-y-4">
+          <div>
+            <label class="text-sm text-slate-600 block mb-1">닉네임</label>
+            <input id="hostName" type="text" placeholder="예: 탐험가" maxlength="10"
+              class="input-focus w-full border border-slate-200 rounded-lg px-4 py-3 text-base">
           </div>
-          <p class="text-xs text-slate-500 mt-2">3명 이상이면 시작 가능</p>
+
+          <div>
+            <label class="text-sm text-slate-600 block mb-2">진행 방식</label>
+            <div class="grid grid-cols-2 gap-2">
+              <label class="relative">
+                <input type="radio" name="mode" value="web" checked class="peer sr-only">
+                <div class="peer-checked:border-indigo-500 peer-checked:bg-indigo-50 border-2 border-slate-200 rounded-lg p-3 cursor-pointer transition">
+                  <div class="font-medium text-sm">웹 전용</div>
+                  <div class="text-xs text-slate-500">상품 자동</div>
+                </div>
+              </label>
+              <label class="relative">
+                <input type="radio" name="mode" value="board" class="peer sr-only">
+                <div class="peer-checked:border-indigo-500 peer-checked:bg-indigo-50 border-2 border-slate-200 rounded-lg p-3 cursor-pointer transition">
+                  <div class="font-medium text-sm">보드게임</div>
+                  <div class="text-xs text-slate-500">카드 사용</div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <button id="btnCreate" class="btn w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-3 font-medium">
+            방 만들기
+          </button>
         </div>
 
-        <div class="border rounded-lg p-4">
-          <h3 class="font-semibold mb-2">대기 중</h3>
-          <ul id="waitList" class="space-y-2 text-sm"></ul>
-        </div>
-      </div>
+        <div id="errCreate" class="hidden mt-3 p-3 rounded-lg bg-red-50 text-red-600 text-sm"></div>
+      </section>
+    </div>
 
-      <div class="mt-4 flex items-center gap-2">
-        <button id="btnStart" class="btn bg-indigo-600 text-white rounded px-4 py-2" disabled>시작하기</button>
-        <button id="btnDelete" class="btn bg-rose-600 text-white rounded px-3 py-2 text-sm">방 삭제</button>
-      </div>
-      <div id="errHost" class="hidden mt-3 p-3 rounded bg-rose-50 border border-rose-200 text-rose-700 text-sm"></div>
-    </section>
+    <!-- 뷰: 방장 대기실 -->
+    <div id="view-host" class="hidden space-y-4">
+      <section class="card p-4">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="font-bold text-lg">대기실</h2>
+          <div class="text-sm text-slate-500">
+            <span id="count" class="font-bold text-indigo-600">1</span> / 8명
+          </div>
+        </div>
+
+        <div class="bg-slate-100 rounded-lg p-3 mb-4">
+          <div class="text-xs text-slate-500 mb-1">방 코드</div>
+          <div id="roomId" class="font-bold text-lg"></div>
+        </div>
+
+        <div class="mb-4">
+          <div class="text-sm text-slate-600 mb-2">참가 링크</div>
+          <div class="flex gap-2">
+            <input id="shareLink" readonly
+              class="flex-1 bg-slate-100 border-0 rounded-lg px-3 py-2 text-sm text-slate-600">
+            <button id="btnCopy" class="btn bg-slate-800 hover:bg-slate-900 text-white rounded-lg px-4 py-2 text-sm">
+              복사
+            </button>
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <div class="text-sm text-slate-600 mb-2">참가자</div>
+          <ul id="waitList" class="space-y-1"></ul>
+        </div>
+
+        <div class="flex gap-2">
+          <button id="btnStart" disabled
+            class="btn flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-lg px-4 py-3 font-medium">
+            게임 시작 (3명 이상)
+          </button>
+          <button id="btnDelete" class="btn bg-red-100 hover:bg-red-200 text-red-600 rounded-lg px-4 py-3">
+            삭제
+          </button>
+        </div>
+
+        <p class="text-xs text-slate-400 mt-3 text-center">15분 내 시작하지 않으면 자동 삭제됩니다</p>
+      </section>
+    </div>
 
   </div>
 
@@ -94,100 +151,101 @@
     const $ = s => document.querySelector(s);
     const show = (sel, yes) => $(sel).classList.toggle('hidden', !yes);
 
-    // 서버 URL (개발: localhost, 배포: 같은 호스트)
-    const serverUrl = location.hostname === 'localhost'
-      ? 'http://localhost:3000'
-      : location.origin;
+    const serverUrl = location.hostname === 'localhost' ? 'http://localhost:3000' : '';
+    const socket = io(serverUrl, { reconnection: true, reconnectionDelay: 1000 });
 
-    const socket = io(serverUrl);
     let currentRoomId = null;
 
     // 연결 상태
     socket.on('connect', () => {
       $('#badge').textContent = '연결됨';
-      $('#badge').className = 'text-xs px-2 py-1 rounded bg-emerald-600 text-white';
+      $('#badge').className = 'badge bg-emerald-100 text-emerald-700';
       socket.emit('rooms:get');
     });
 
     socket.on('disconnect', () => {
       $('#badge').textContent = '연결 끊김';
-      $('#badge').className = 'text-xs px-2 py-1 rounded bg-rose-600 text-white';
+      $('#badge').className = 'badge bg-red-100 text-red-600';
     });
 
-    // 에러
-    socket.on('error', ({ message }) => {
-      alert(message);
+    socket.on('connect_error', () => {
+      $('#badge').textContent = '연결 실패';
+      $('#badge').className = 'badge bg-red-100 text-red-600';
     });
+
+    socket.on('error', ({ message }) => alert(message));
 
     // 방 목록
     socket.on('rooms:list', (rooms) => {
-      const list = $('#roomsList');
-      list.innerHTML = '';
-      $('#roomsEmpty').classList.toggle('hidden', rooms.length > 0);
+      show('#roomsLoading', false);
+      show('#roomsEmpty', rooms.length === 0);
+      show('#roomsList', rooms.length > 0);
+
+      const ul = $('#roomsList');
+      ul.innerHTML = '';
 
       rooms.forEach(room => {
         const li = document.createElement('li');
-        li.className = 'border rounded-lg p-3';
+        li.className = 'flex items-center justify-between p-3 bg-slate-50 rounded-lg';
         li.innerHTML = `
-          <div class="flex items-center justify-between mb-2">
-            <div>
-              <div class="font-semibold mono">${room.id}</div>
-              <div class="text-xs text-slate-500">방장: ${room.hostName}</div>
-            </div>
-            <div class="text-xs text-slate-500">${room.boardMode ? '보드게임' : '웹 전용'}</div>
+          <div>
+            <div class="font-medium">${room.id}</div>
+            <div class="text-xs text-slate-500">${room.hostName} · ${room.boardMode ? '보드게임' : '웹'}</div>
           </div>
-          <div class="flex items-center justify-between">
-            <span class="text-sm">${room.playerCount} / ${room.maxPlayers}명</span>
-            <button class="btn bg-indigo-600 text-white rounded px-3 py-1.5 text-sm"
-              onclick="joinRoom('${room.id}')" ${room.playerCount >= 8 ? 'disabled' : ''}>입장</button>
+          <div class="flex items-center gap-3">
+            <span class="text-sm text-slate-500">${room.playerCount}/8</span>
+            <button onclick="joinRoom('${room.id}')"
+              class="btn bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-3 py-1.5 text-sm"
+              ${room.playerCount >= 8 ? 'disabled' : ''}>입장</button>
           </div>
         `;
-        list.appendChild(li);
+        ul.appendChild(li);
       });
     });
 
-    // 방 입장 버튼
     window.joinRoom = (roomId) => {
       location.href = `join.html?room=${encodeURIComponent(roomId)}`;
     };
 
-    // 새로고침
-    $('#btnRefresh').onclick = () => socket.emit('rooms:get');
+    $('#btnRefresh').onclick = () => {
+      show('#roomsLoading', true);
+      show('#roomsList', false);
+      show('#roomsEmpty', false);
+      socket.emit('rooms:get');
+    };
 
     // 방 생성
     $('#btnCreate').onclick = () => {
-      const hostName = $('#hostName').value.trim();
-      if (!hostName) {
-        showError('#errCreate', '닉네임을 입력하세요.');
+      const name = $('#hostName').value.trim();
+      if (!name) {
+        showError('닉네임을 입력하세요.');
         return;
       }
-
       const boardMode = $('input[name="mode"]:checked').value === 'board';
-      socket.emit('room:create', { hostName, boardMode });
+      socket.emit('room:create', { hostName: name, boardMode });
     };
 
-    // 방 생성 완료
+    $('#hostName').onkeydown = (e) => {
+      if (e.key === 'Enter') $('#btnCreate').click();
+    };
+
     socket.on('room:created', ({ roomId, room }) => {
       currentRoomId = roomId;
       sessionStorage.setItem('roomId', roomId);
       sessionStorage.setItem('playerName', room.hostName);
 
-      show('#view-list', false);
-      show('#view-create', false);
+      show('#view-lobby', false);
       show('#view-host', true);
 
       $('#roomId').textContent = roomId;
-      $('#modeInfo').textContent = room.boardMode ? '보드게임 모드' : '웹 전용 모드';
-
-      const joinUrl = `${location.origin}${location.pathname.replace('room.html', 'join.html')}?room=${encodeURIComponent(roomId)}`;
+      const joinUrl = `${location.origin}/ulleung/join.html?room=${encodeURIComponent(roomId)}`;
       $('#shareLink').value = joinUrl;
 
       updateWaitList(room.players);
     });
 
-    // 방 상태 업데이트
     socket.on('room:updated', (room) => {
-      updateWaitList(room.players);
+      if (currentRoomId) updateWaitList(room.players);
     });
 
     function updateWaitList(players) {
@@ -195,60 +253,56 @@
       ul.innerHTML = '';
       players.forEach((p, i) => {
         const li = document.createElement('li');
-        li.className = 'border rounded px-3 py-2';
-        li.textContent = `${i + 1}. ${p.name}`;
+        li.className = 'flex items-center justify-between p-2 bg-slate-50 rounded-lg';
+        li.innerHTML = `
+          <span>${p.name}</span>
+          ${p.isHost ? '<span class="badge bg-amber-100 text-amber-700">방장</span>' : ''}
+        `;
         ul.appendChild(li);
       });
       $('#count').textContent = players.length;
       $('#btnStart').disabled = players.length < 3;
+      $('#btnStart').textContent = players.length < 3
+        ? `게임 시작 (${3 - players.length}명 더 필요)`
+        : '게임 시작';
     }
 
-    // 링크 복사
     $('#btnCopy').onclick = async () => {
       try {
         await navigator.clipboard.writeText($('#shareLink').value);
         $('#btnCopy').textContent = '복사됨!';
         setTimeout(() => $('#btnCopy').textContent = '복사', 1500);
       } catch (e) {
-        alert('복사 실패: ' + e.message);
+        // Fallback
+        $('#shareLink').select();
+        document.execCommand('copy');
+        $('#btnCopy').textContent = '복사됨!';
+        setTimeout(() => $('#btnCopy').textContent = '복사', 1500);
       }
     };
 
-    // 시작
-    $('#btnStart').onclick = () => {
-      socket.emit('game:start');
-    };
+    $('#btnStart').onclick = () => socket.emit('game:start');
 
-    // 게임 시작됨
     socket.on('game:started', (room) => {
       const name = sessionStorage.getItem('playerName');
       location.href = `game.html?room=${encodeURIComponent(room.id)}&name=${encodeURIComponent(name)}`;
     });
 
-    // 방 삭제
     $('#btnDelete').onclick = () => {
-      if (confirm('방을 삭제할까요?')) {
-        socket.emit('room:delete');
-      }
+      if (confirm('방을 삭제할까요?')) socket.emit('room:delete');
     };
 
-    // 방 삭제됨
     socket.on('room:deleted', () => {
       sessionStorage.clear();
       location.reload();
     });
 
-    function showError(sel, msg) {
-      const el = $(sel);
+    function showError(msg) {
+      const el = $('#errCreate');
       el.textContent = msg;
       el.classList.remove('hidden');
       setTimeout(() => el.classList.add('hidden'), 3000);
     }
-
-    // Enter 키로 방 생성
-    $('#hostName').onkeydown = (e) => {
-      if (e.key === 'Enter') $('#btnCreate').click();
-    };
   </script>
 </body>
 </html>

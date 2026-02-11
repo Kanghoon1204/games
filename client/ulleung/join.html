@@ -2,56 +2,102 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#f8fafc">
   <title>울릉 한 접시 - 참가</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
-    .mono { font-variant-numeric: tabular-nums; }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    * { font-family: 'Noto Sans KR', sans-serif; -webkit-tap-highlight-color: transparent; }
+    .btn { transition: all 0.2s; }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .card { background: white; border-radius: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .input-focus:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
+    .badge { font-size: 0.7rem; padding: 0.25rem 0.5rem; border-radius: 9999px; }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen">
-  <div class="max-w-xl mx-auto p-4 md:p-6 space-y-6">
+  <div class="max-w-md mx-auto p-4 pb-8">
 
-    <header class="flex items-center justify-between">
-      <h1 class="text-xl md:text-2xl font-bold">울릉 한 접시</h1>
-      <span id="badge" class="text-xs px-2 py-1 rounded bg-slate-200">연결 중...</span>
+    <!-- 헤더 -->
+    <header class="flex items-center justify-between py-4">
+      <a href="room.html" class="flex items-center gap-2">
+        <span class="text-2xl">🍽️</span>
+        <h1 class="text-xl font-bold">울릉 한 접시</h1>
+      </a>
+      <div id="badge" class="badge bg-slate-200 text-slate-600">연결 중...</div>
     </header>
 
     <!-- 참가 폼 -->
-    <section id="view-join" class="bg-white rounded-xl shadow p-4 md:p-6">
-      <h2 class="font-semibold mb-4">참가하기</h2>
-      <div class="text-sm mb-4">방: <span id="roomIdDisplay" class="mono font-bold"></span></div>
+    <div id="view-join" class="space-y-4">
+      <section class="card p-6">
+        <div class="text-center mb-6">
+          <div class="text-4xl mb-2">🎮</div>
+          <h2 class="font-bold text-xl mb-1">방 참가</h2>
+          <div class="inline-block bg-slate-100 rounded-lg px-3 py-1">
+            <span class="text-sm text-slate-500">방 코드:</span>
+            <span id="roomIdDisplay" class="font-bold ml-1"></span>
+          </div>
+        </div>
 
-      <label class="text-sm block mb-1">닉네임</label>
-      <input id="playerName" type="text" placeholder="예: 탐험가"
-        class="w-full border rounded px-3 py-2 mb-4" maxlength="20">
+        <div class="space-y-4">
+          <div>
+            <label class="text-sm text-slate-600 block mb-1">닉네임</label>
+            <input id="playerName" type="text" placeholder="예: 탐험가" maxlength="10"
+              class="input-focus w-full border border-slate-200 rounded-lg px-4 py-3 text-base text-center">
+          </div>
 
-      <button id="btnJoin" class="btn w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded px-4 py-2">
-        입장
-      </button>
-      <p class="text-xs text-slate-500 mt-3">정원: 3~8명. 중복 닉네임 불가.</p>
-      <div id="errJoin" class="hidden mt-3 p-3 rounded bg-rose-50 border border-rose-200 text-rose-700 text-sm"></div>
-    </section>
+          <button id="btnJoin" class="btn w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-3 font-medium">
+            입장하기
+          </button>
+        </div>
+
+        <p class="text-xs text-slate-400 mt-4 text-center">3~8명 플레이 · 중복 닉네임 불가</p>
+        <div id="errJoin" class="hidden mt-3 p-3 rounded-lg bg-red-50 text-red-600 text-sm text-center"></div>
+      </section>
+
+      <a href="room.html" class="block text-center text-sm text-slate-500 hover:text-slate-700">
+        ← 방 목록으로
+      </a>
+    </div>
 
     <!-- 대기실 -->
-    <section id="view-lobby" class="hidden bg-white rounded-xl shadow p-4 md:p-6">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="font-semibold">대기실</h2>
-        <button id="btnLeave" class="btn bg-rose-600 text-white rounded px-3 py-2 text-sm">나가기</button>
-      </div>
-      <div class="text-sm mb-2">
-        방: <span id="lobbyRoom" class="mono font-bold"></span>
-        · <span id="count" class="font-bold">0</span> / 8명
-      </div>
-      <ul id="playerList" class="space-y-2 text-sm mb-4"></ul>
+    <div id="view-lobby" class="hidden space-y-4">
+      <section class="card p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="font-bold text-lg">대기실</h2>
+          <div class="text-sm">
+            <span id="count" class="font-bold text-indigo-600">0</span> / 8명
+          </div>
+        </div>
 
-      <div id="started" class="hidden p-3 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm">
-        게임이 시작되었습니다!
-        <button id="goGame" class="ml-2 underline">게임 화면으로</button>
-      </div>
-    </section>
+        <div class="bg-slate-100 rounded-lg p-3 mb-4 text-center">
+          <div class="text-xs text-slate-500">방 코드</div>
+          <div id="lobbyRoom" class="font-bold"></div>
+        </div>
+
+        <ul id="playerList" class="space-y-1 mb-4"></ul>
+
+        <div id="waiting" class="text-center py-4">
+          <div class="inline-block animate-spin w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full mb-2"></div>
+          <p class="text-sm text-slate-500">방장이 게임을 시작할 때까지 대기 중...</p>
+        </div>
+
+        <div id="started" class="hidden text-center py-4">
+          <div class="text-2xl mb-2">🎉</div>
+          <p class="text-emerald-600 font-medium mb-3">게임이 시작되었습니다!</p>
+          <button id="goGame" class="btn bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-6 py-2">
+            게임 화면으로 이동
+          </button>
+        </div>
+
+        <button id="btnLeave" class="btn w-full mt-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg px-4 py-2 text-sm">
+          나가기
+        </button>
+      </section>
+    </div>
 
   </div>
 
@@ -69,26 +115,22 @@
 
     $('#roomIdDisplay').textContent = roomId;
 
-    const serverUrl = location.hostname === 'localhost'
-      ? 'http://localhost:3000'
-      : location.origin;
+    const serverUrl = location.hostname === 'localhost' ? 'http://localhost:3000' : '';
+    const socket = io(serverUrl, { reconnection: true, reconnectionDelay: 1000 });
 
-    const socket = io(serverUrl);
     let myName = '';
 
     socket.on('connect', () => {
       $('#badge').textContent = '연결됨';
-      $('#badge').className = 'text-xs px-2 py-1 rounded bg-emerald-600 text-white';
+      $('#badge').className = 'badge bg-emerald-100 text-emerald-700';
     });
 
     socket.on('disconnect', () => {
       $('#badge').textContent = '연결 끊김';
-      $('#badge').className = 'text-xs px-2 py-1 rounded bg-rose-600 text-white';
+      $('#badge').className = 'badge bg-red-100 text-red-600';
     });
 
-    socket.on('error', ({ message }) => {
-      showError(message);
-    });
+    socket.on('error', ({ message }) => showError(message));
 
     // 참가
     $('#btnJoin').onclick = () => {
@@ -106,7 +148,7 @@
     };
 
     // 참가 완료
-    socket.on('room:joined', ({ roomId, room, playerName }) => {
+    socket.on('room:joined', ({ roomId, room, playerName, reconnected }) => {
       myName = playerName;
       sessionStorage.setItem('roomId', roomId);
       sessionStorage.setItem('playerName', playerName);
@@ -114,10 +156,15 @@
       show('#view-join', false);
       show('#view-lobby', true);
       $('#lobbyRoom').textContent = roomId;
+
+      if (reconnected && room.started) {
+        show('#waiting', false);
+        show('#started', true);
+      }
+
       updatePlayerList(room.players);
     });
 
-    // 방 상태 업데이트
     socket.on('room:updated', (room) => {
       updatePlayerList(room.players);
     });
@@ -125,25 +172,32 @@
     function updatePlayerList(players) {
       const ul = $('#playerList');
       ul.innerHTML = '';
-      players.forEach((p, i) => {
+      players.forEach(p => {
         const li = document.createElement('li');
-        li.className = 'border rounded px-3 py-2' + (p.name === myName ? ' bg-indigo-50' : '');
-        li.textContent = `${i + 1}. ${p.name}` + (p.name === myName ? ' (나)' : '');
+        const isMe = p.name === myName;
+        li.className = `flex items-center justify-between p-2 rounded-lg ${isMe ? 'bg-indigo-50' : 'bg-slate-50'}`;
+        li.innerHTML = `
+          <span>${p.name} ${isMe ? '<span class="text-xs text-indigo-500">(나)</span>' : ''}</span>
+          ${p.isHost ? '<span class="badge bg-amber-100 text-amber-700">방장</span>' : ''}
+        `;
         ul.appendChild(li);
       });
       $('#count').textContent = players.length;
     }
 
-    // 게임 시작됨
+    // 게임 시작
     socket.on('game:started', (room) => {
+      show('#waiting', false);
       show('#started', true);
+
       $('#goGame').onclick = () => {
         location.href = `game.html?room=${encodeURIComponent(room.id)}&name=${encodeURIComponent(myName)}`;
       };
-      // 자동 이동
+
+      // 2초 후 자동 이동
       setTimeout(() => {
         location.href = `game.html?room=${encodeURIComponent(room.id)}&name=${encodeURIComponent(myName)}`;
-      }, 1000);
+      }, 2000);
     });
 
     // 나가기
@@ -153,7 +207,6 @@
       location.href = 'room.html';
     };
 
-    // 방 삭제됨
     socket.on('room:deleted', () => {
       alert('방이 삭제되었습니다.');
       sessionStorage.clear();
@@ -166,6 +219,9 @@
       el.classList.remove('hidden');
       setTimeout(() => el.classList.add('hidden'), 3000);
     }
+
+    // 포커스
+    $('#playerName').focus();
   </script>
 </body>
 </html>

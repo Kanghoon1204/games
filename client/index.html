@@ -2,56 +2,81 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Games - 종합 게임</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Games - 멀티플레이어 게임</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    * { font-family: 'Noto Sans KR', sans-serif; }
+    body { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); min-height: 100vh; }
+    .game-card {
+      background: linear-gradient(145deg, rgba(30,41,59,0.8) 0%, rgba(15,23,42,0.9) 100%);
+      border: 1px solid rgba(148,163,184,0.1);
+      transition: all 0.3s ease;
+    }
+    .game-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(99,102,241,0.5);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+    }
+    .game-card.disabled { opacity: 0.4; pointer-events: none; }
+    .glow { text-shadow: 0 0 20px rgba(99,102,241,0.5); }
+  </style>
 </head>
-<body class="bg-slate-900 text-white min-h-screen">
-  <div class="max-w-4xl mx-auto p-6">
+<body class="text-white">
+  <div class="min-h-screen flex flex-col">
 
-    <header class="text-center py-12">
-      <h1 class="text-4xl font-bold mb-4">Games</h1>
-      <p class="text-slate-400">멀티플레이어 웹 게임 플랫폼</p>
+    <!-- 헤더 -->
+    <header class="p-6 text-center">
+      <h1 class="text-4xl md:text-5xl font-bold glow mb-2">Games</h1>
+      <p class="text-slate-400">실시간 멀티플레이어 게임 플랫폼</p>
     </header>
 
-    <section class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+    <!-- 게임 목록 -->
+    <main class="flex-1 max-w-5xl mx-auto px-4 pb-12 w-full">
+      <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
 
-      <!-- 울릉 한 접시 -->
-      <a href="/ulleung/room.html" class="block bg-slate-800 hover:bg-slate-700 rounded-xl p-6 transition">
-        <div class="text-4xl mb-4">🍽️</div>
-        <h2 class="text-xl font-bold mb-2">울릉 한 접시</h2>
-        <p class="text-slate-400 text-sm mb-4">울릉도 특산물 경매 보드게임</p>
-        <div class="flex flex-wrap gap-2 text-xs">
-          <span class="bg-slate-700 px-2 py-1 rounded">3-8명</span>
-          <span class="bg-slate-700 px-2 py-1 rounded">경매</span>
-          <span class="bg-slate-700 px-2 py-1 rounded">전략</span>
-        </div>
-      </a>
+        <!-- 울릉 한 접시 -->
+        <a href="/ulleung/room.html" class="game-card rounded-2xl p-6 block">
+          <div class="text-5xl mb-4">🍽️</div>
+          <h2 class="text-xl font-bold mb-2">울릉 한 접시</h2>
+          <p class="text-slate-400 text-sm mb-4 leading-relaxed">
+            울릉도 특산물을 경매로 모아 승리하세요!<br>
+            비공개 입찰 전략 게임
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <span class="text-xs bg-indigo-600/30 text-indigo-300 px-2.5 py-1 rounded-full">3-8명</span>
+            <span class="text-xs bg-emerald-600/30 text-emerald-300 px-2.5 py-1 rounded-full">경매</span>
+            <span class="text-xs bg-amber-600/30 text-amber-300 px-2.5 py-1 rounded-full">전략</span>
+          </div>
+        </a>
 
-      <!-- 준비 중 -->
-      <div class="bg-slate-800/50 rounded-xl p-6 opacity-50">
-        <div class="text-4xl mb-4">🎮</div>
-        <h2 class="text-xl font-bold mb-2">준비 중</h2>
-        <p class="text-slate-400 text-sm mb-4">새로운 게임이 곧 추가됩니다</p>
-        <div class="flex flex-wrap gap-2 text-xs">
-          <span class="bg-slate-700 px-2 py-1 rounded">Coming Soon</span>
+        <!-- Coming Soon 1 -->
+        <div class="game-card disabled rounded-2xl p-6">
+          <div class="text-5xl mb-4 grayscale">🎲</div>
+          <h2 class="text-xl font-bold mb-2">준비 중</h2>
+          <p class="text-slate-500 text-sm mb-4">새로운 게임이 곧 추가됩니다</p>
+          <span class="text-xs bg-slate-700 text-slate-400 px-2.5 py-1 rounded-full">Coming Soon</span>
         </div>
+
+        <!-- Coming Soon 2 -->
+        <div class="game-card disabled rounded-2xl p-6">
+          <div class="text-5xl mb-4 grayscale">🃏</div>
+          <h2 class="text-xl font-bold mb-2">준비 중</h2>
+          <p class="text-slate-500 text-sm mb-4">새로운 게임이 곧 추가됩니다</p>
+          <span class="text-xs bg-slate-700 text-slate-400 px-2.5 py-1 rounded-full">Coming Soon</span>
+        </div>
+
       </div>
+    </main>
 
-      <div class="bg-slate-800/50 rounded-xl p-6 opacity-50">
-        <div class="text-4xl mb-4">🎲</div>
-        <h2 class="text-xl font-bold mb-2">준비 중</h2>
-        <p class="text-slate-400 text-sm mb-4">새로운 게임이 곧 추가됩니다</p>
-        <div class="flex flex-wrap gap-2 text-xs">
-          <span class="bg-slate-700 px-2 py-1 rounded">Coming Soon</span>
-        </div>
-      </div>
-
-    </section>
-
-    <footer class="text-center py-12 text-slate-500 text-sm">
+    <!-- 푸터 -->
+    <footer class="text-center py-8 text-slate-500 text-sm border-t border-slate-800">
       <p>Socket.io 기반 실시간 멀티플레이어</p>
-      <p class="mt-2">무료 · 무제한</p>
+      <p class="mt-1">무료 · 무제한 · 광고 없음</p>
     </footer>
 
   </div>
