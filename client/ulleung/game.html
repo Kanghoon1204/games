@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>울릉 한 접시 - 게임</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <style>
+    .mono { font-variant-numeric: tabular-nums; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .card { background: #fff; border-radius: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+    .safe-bottom { padding-bottom: calc(env(safe-area-inset-bottom, 0) + 80px); }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen safe-bottom">
+  <div class="max-w-6xl mx-auto p-4 md:p-6 space-y-4">
+
+    <!-- 헤더 -->
+    <header class="flex items-center justify-between">
+      <div>
+        <h1 class="text-xl md:text-2xl font-bold">울릉 한 접시</h1>
+        <div class="text-sm text-slate-600">
+          방: <span id="roomId" class="mono">-</span>
+          · R<span id="round" class="mono">0</span>
+          · <span id="myName"></span>
+          <span id="hostBadge" class="hidden text-xs bg-amber-200 px-1.5 py-0.5 rounded ml-1">방장</span>
+        </div>
+      </div>
+      <span id="badge" class="text-xs px-2 py-1 rounded bg-slate-200">연결 중...</span>
+    </header>
+
+    <!-- 게임 종료 알림 -->
+    <div id="endedBox" class="hidden p-4 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800">
+      <span id="endMsg">게임 종료!</span>
+      <a href="room.html" class="ml-3 underline">새 게임</a>
+    </div>
+
+    <div class="grid gap-4 lg:grid-cols-12">
+
+      <!-- 내 정보 + 액션 -->
+      <section class="card p-4 md:p-6 lg:col-span-5">
+        <h2 class="font-semibold mb-3">내 정보</h2>
+        <div class="text-sm">소지금: <span id="myBalance" class="mono font-bold">0</span>원</div>
+        <div class="text-sm mt-1">보류금: <span id="myHold" class="mono font-bold">0</span>원</div>
+
+        <hr class="my-4">
+
+        <!-- 응찰 선택 (phase: choose) -->
+        <div id="phaseChoose" class="space-y-3">
+          <h3 class="font-semibold">1) 응찰 선택</h3>
+          <div class="text-sm">이번 상품: <b id="itemChoose">-</b></div>
+          <img id="imgChoose" class="w-16 h-16 object-contain border rounded hidden" alt="상품">
+
+          <div class="flex items-center gap-4 mt-2">
+            <label class="flex items-center gap-2 text-sm">
+              <input type="radio" name="part" value="yes"> 응찰
+            </label>
+            <label class="flex items-center gap-2 text-sm">
+              <input type="radio" name="part" value="no"> 불응찰 (+5만원)
+            </label>
+          </div>
+          <button id="btnLockPart" class="btn bg-indigo-600 hover:bg-indigo-700 text-white rounded px-4 py-2">
+            확정
+          </button>
+          <span id="partStatus" class="text-xs text-slate-500 ml-2"></span>
+          <p id="chooseHint" class="hidden text-xs text-amber-600">* 보드게임 모드: 방장이 상품을 선택해야 합니다.</p>
+        </div>
+
+        <!-- 입찰 (phase: bid) -->
+        <div id="phaseBid" class="hidden space-y-3">
+          <h3 class="font-semibold">2) 비공개 입찰</h3>
+          <div class="text-sm">이번 상품: <b id="itemBid">-</b></div>
+          <img id="imgBid" class="w-16 h-16 object-contain border rounded hidden" alt="상품">
+
+          <div id="bidDisabled" class="hidden text-sm text-slate-500">
+            불응찰을 선택하여 입찰할 수 없습니다.
+          </div>
+
+          <div id="bidBox" class="hidden">
+            <div class="flex items-center gap-2 flex-wrap mb-2">
+              <button data-step="-5" class="px-3 py-2 bg-slate-200 rounded text-sm">-5만</button>
+              <button data-step="-1" class="px-3 py-2 bg-slate-200 rounded text-sm">-1만</button>
+              <input id="bidInput" type="text" inputmode="numeric"
+                class="mono w-32 border rounded px-3 py-2 text-right" value="0">
+              <button data-step="1" class="px-3 py-2 bg-slate-200 rounded text-sm">+1만</button>
+              <button data-step="5" class="px-3 py-2 bg-slate-200 rounded text-sm">+5만</button>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="btnConfirmBid" class="btn bg-indigo-600 hover:bg-indigo-700 text-white rounded px-4 py-2">
+                입찰 확정
+              </button>
+              <button id="btnCancelBid" class="btn bg-slate-300 hover:bg-slate-400 rounded px-4 py-2">
+                0원 입찰
+              </button>
+            </div>
+            <span id="bidStatus" class="text-xs text-slate-500 ml-2"></span>
+          </div>
+        </div>
+
+        <hr class="my-4">
+
+        <h3 class="font-semibold mb-2">내 소지품</h3>
+        <ul id="myItems" class="space-y-1 text-sm"></ul>
+
+        <div class="mt-4 p-3 bg-slate-50 rounded border text-sm">
+          <div class="font-semibold mb-1">승리 조건</div>
+          <ul class="list-disc ml-5 space-y-1">
+            <li>같은 재료 <b>3개</b></li>
+            <li>다른 재료 <b>4개</b></li>
+            <li>재료 <b>5개</b></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 공개 정보 -->
+      <section class="card p-4 md:p-6 lg:col-span-4">
+        <h2 class="font-semibold mb-3">라운드 정보</h2>
+        <div class="text-sm text-slate-600 mb-2">
+          단계: <b id="phaseText">-</b> · 상품: <b id="currentItem">-</b>
+        </div>
+        <img id="imgPublic" class="w-16 h-16 object-contain border rounded hidden mb-4" alt="상품">
+
+        <!-- 응찰자 목록 -->
+        <div id="participantsBox" class="hidden mb-4">
+          <h3 class="font-semibold mb-2">응찰자</h3>
+          <ul id="participantsList" class="space-y-1 text-sm"></ul>
+        </div>
+
+        <!-- 라운드 로그 -->
+        <h3 class="font-semibold mb-2">라운드 기록</h3>
+        <ul id="roundLog" class="space-y-2 text-xs max-h-60 overflow-y-auto"></ul>
+
+        <h3 class="font-semibold mt-4 mb-2">플레이어 현황</h3>
+        <ul id="playerList" class="space-y-2 text-sm"></ul>
+      </section>
+
+      <!-- 방장 패널 -->
+      <section id="hostPanel" class="hidden card p-4 md:p-6 lg:col-span-3">
+        <h2 class="font-semibold mb-3">방장 설정</h2>
+        <div id="modeNotice" class="text-xs text-slate-600 mb-3"></div>
+
+        <label class="text-sm block mb-1">이번 상품</label>
+        <div class="flex items-center gap-2 mb-3">
+          <select id="selectItem" class="flex-1 border rounded px-3 py-2">
+            <option value="">— 선택 —</option>
+            <option value="오징어">오징어</option>
+            <option value="독도새우">독도새우</option>
+            <option value="호박">호박</option>
+            <option value="명이나물">명이나물</option>
+          </select>
+          <button id="btnRandom" class="btn bg-slate-200 rounded px-3 py-2">랜덤</button>
+        </div>
+
+        <hr class="my-4">
+        <button id="btnEndGame" class="btn w-full bg-rose-600 hover:bg-rose-700 text-white rounded px-4 py-2">
+          게임 종료
+        </button>
+      </section>
+    </div>
+
+    <!-- 토스트 -->
+    <div id="toast" class="hidden fixed bottom-20 left-1/2 -translate-x-1/2 bg-black/80 text-white px-4 py-2 rounded z-50">
+      <span id="toastMsg"></span>
+    </div>
+  </div>
+
+  <!-- 모바일 하단 바 -->
+  <div id="mobileBidBar" class="hidden md:hidden fixed bottom-0 inset-x-0 bg-white border-t shadow-lg z-50 p-3">
+    <div class="text-xs text-slate-600 mb-1">상품: <b id="itemMobile">-</b></div>
+    <div class="flex items-center gap-2 mb-2">
+      <button data-step="-5" class="flex-1 py-2 bg-slate-200 rounded text-sm">-5만</button>
+      <button data-step="-1" class="flex-1 py-2 bg-slate-200 rounded text-sm">-1만</button>
+      <input id="bidInputMobile" type="text" inputmode="numeric"
+        class="mono w-24 border rounded px-2 py-2 text-right" value="0">
+      <button data-step="1" class="flex-1 py-2 bg-slate-200 rounded text-sm">+1만</button>
+      <button data-step="5" class="flex-1 py-2 bg-slate-200 rounded text-sm">+5만</button>
+    </div>
+    <div class="flex gap-2">
+      <button id="btnConfirmBidMobile" class="flex-1 py-2 bg-indigo-600 text-white rounded">확정</button>
+      <button id="btnCancelBidMobile" class="flex-1 py-2 bg-slate-300 rounded">0원</button>
+    </div>
+  </div>
+
+  <script>
+    const $ = s => document.querySelector(s);
+    const $$ = s => document.querySelectorAll(s);
+    const show = (sel, yes) => $(sel).classList.toggle('hidden', !yes);
+    const fmt = n => Number(n || 0).toLocaleString('ko-KR');
+
+    const params = new URLSearchParams(location.search);
+    const roomId = params.get('room') || '';
+    const myName = params.get('name') || sessionStorage.getItem('playerName') || '';
+
+    if (!roomId || !myName) {
+      alert('잘못된 접근입니다.');
+      location.href = 'room.html';
+    }
+
+    $('#roomId').textContent = roomId;
+    $('#myName').textContent = myName;
+
+    const serverUrl = location.hostname === 'localhost'
+      ? 'http://localhost:3000'
+      : location.origin;
+
+    const socket = io(serverUrl);
+
+    // 이미지 매핑
+    const ITEM_IMG = {
+      '오징어': '../assets/squid.png',
+      '독도새우': '../assets/shrimp.png',
+      '호박': '../assets/pumpkin.png',
+      '명이나물': '../assets/wild_leek.png'
+    };
+
+    function setItemImg(el, item) {
+      if (!el) return;
+      const src = ITEM_IMG[item];
+      if (src) {
+        el.src = src;
+        el.classList.remove('hidden');
+      } else {
+        el.classList.add('hidden');
+      }
+    }
+
+    let isHost = false;
+    let currentRoom = null;
+    let bidAmount = 0;
+    const STEP = 10000;
+
+    // 연결
+    socket.on('connect', () => {
+      $('#badge').textContent = '연결됨';
+      $('#badge').className = 'text-xs px-2 py-1 rounded bg-emerald-600 text-white';
+      // 방에 다시 참가 (새로고침 대응)
+      socket.emit('room:join', { roomId, playerName: myName });
+    });
+
+    socket.on('disconnect', () => {
+      $('#badge').textContent = '연결 끊김';
+      $('#badge').className = 'text-xs px-2 py-1 rounded bg-rose-600 text-white';
+    });
+
+    socket.on('error', ({ message }) => {
+      toast(message);
+    });
+
+    // 방 참가 완료
+    socket.on('room:joined', ({ room }) => {
+      updateUI(room);
+    });
+
+    // 방 상태 업데이트
+    socket.on('room:updated', (room) => {
+      updateUI(room);
+    });
+
+    // 게임 시작됨 (이미 게임 중인 경우)
+    socket.on('game:started', (room) => {
+      updateUI(room);
+    });
+
+    // 라운드 결과
+    socket.on('round:result', ({ round, item, winners, room }) => {
+      if (winners.includes(myName)) {
+        toast(`낙찰! ${item} 획득!`);
+      } else if (room.participants && room.participants.includes(myName)) {
+        toast('입찰 실패 (환불됨)');
+      } else {
+        toast('라운드 종료');
+      }
+      updateUI(room);
+    });
+
+    // 게임 종료
+    socket.on('game:ended', ({ message, winners, room }) => {
+      show('#endedBox', true);
+      if (winners && winners.length > 0) {
+        $('#endMsg').textContent = `게임 종료! 우승: ${winners.join(', ')}`;
+        if (winners.includes(myName)) {
+          toast('축하합니다! 승리!');
+        }
+      } else {
+        $('#endMsg').textContent = message || '게임 종료';
+      }
+      updateUI(room);
+      disableAllActions();
+    });
+
+    // 방 삭제됨
+    socket.on('room:deleted', () => {
+      alert('방이 삭제되었습니다.');
+      location.href = 'room.html';
+    });
+
+    function updateUI(room) {
+      if (!room) return;
+      currentRoom = room;
+
+      $('#round').textContent = room.round || 0;
+
+      // 방장 체크
+      isHost = room.hostName === myName || (room.players[0] && room.players[0].name === myName);
+      show('#hostBadge', isHost);
+      show('#hostPanel', isHost && room.boardMode);
+
+      if (isHost) {
+        $('#modeNotice').textContent = room.boardMode
+          ? '보드게임 모드: 상품을 수동 선택하세요.'
+          : '웹 전용 모드: 상품이 자동 결정됩니다.';
+      }
+
+      // 내 정보
+      const me = room.players.find(p => p.name === myName);
+      if (me) {
+        $('#myBalance').textContent = fmt(me.balance);
+        $('#myHold').textContent = fmt(me.hold);
+
+        // 내 소지품
+        const ul = $('#myItems');
+        ul.innerHTML = '';
+        (me.items || []).forEach((item, i) => {
+          const li = document.createElement('li');
+          li.className = 'flex items-center gap-2 border rounded px-2 py-1';
+          li.innerHTML = `<img src="${ITEM_IMG[item] || ''}" class="w-6 h-6 object-contain" alt="">${i + 1}. ${item}`;
+          ul.appendChild(li);
+        });
+      }
+
+      // 상품 표시
+      const item = room.currentItem || '-';
+      $('#currentItem').textContent = item;
+      $('#itemChoose').textContent = item;
+      $('#itemBid').textContent = item;
+      $('#itemMobile').textContent = item;
+      setItemImg($('#imgPublic'), room.currentItem);
+      setItemImg($('#imgChoose'), room.currentItem);
+      setItemImg($('#imgBid'), room.currentItem);
+
+      // Phase 표시
+      const phaseLabels = {
+        'choose': '응찰 선택',
+        'bid': '비공개 입찰'
+      };
+      $('#phaseText').textContent = phaseLabels[room.phase] || '-';
+
+      // 응찰자 목록
+      if (room.participants && room.participants.length > 0) {
+        show('#participantsBox', true);
+        const pul = $('#participantsList');
+        pul.innerHTML = '';
+        room.participants.forEach((name, i) => {
+          const li = document.createElement('li');
+          li.className = 'border rounded px-2 py-1';
+          li.textContent = `${i + 1}. ${name}`;
+          pul.appendChild(li);
+        });
+      } else {
+        show('#participantsBox', false);
+      }
+
+      // 라운드 로그
+      const logUl = $('#roundLog');
+      logUl.innerHTML = '';
+      (room.roundLogs || []).slice().reverse().forEach(log => {
+        const li = document.createElement('li');
+        li.className = 'border rounded px-2 py-1 bg-slate-50';
+        li.innerHTML = `<div class="flex justify-between">
+          <span>R${log.round} · <b>${log.item}</b></span>
+          <span class="text-slate-500">낙찰: ${log.winners.length ? log.winners.join(', ') : '-'}</span>
+        </div>`;
+        logUl.appendChild(li);
+      });
+
+      // 플레이어 현황
+      const plUl = $('#playerList');
+      plUl.innerHTML = '';
+      room.players.forEach((p, i) => {
+        const status = room.phase === 'choose'
+          ? (p.readyPart ? (p.willParticipate ? '응찰' : '불응찰') : '대기')
+          : room.phase === 'bid'
+            ? (p.readyBid ? '입찰완료' : '입찰중')
+            : '-';
+        const statusClass = status.includes('완료') || status === '응찰' || status === '불응찰'
+          ? 'bg-emerald-100' : 'bg-slate-100';
+        const li = document.createElement('li');
+        li.className = 'flex items-center justify-between border rounded px-3 py-2' +
+          (p.name === myName ? ' bg-indigo-50' : '');
+        li.innerHTML = `
+          <span>${i + 1}. ${p.name} ${p.name === myName ? '(나)' : ''}</span>
+          <span class="text-xs px-2 py-0.5 rounded ${statusClass}">${status}</span>
+        `;
+        plUl.appendChild(li);
+      });
+
+      // Phase별 UI
+      if (room.phase === 'choose') {
+        show('#phaseChoose', true);
+        show('#phaseBid', false);
+        show('#mobileBidBar', false);
+
+        // 보드게임 모드에서 상품 없으면 힌트
+        show('#chooseHint', room.boardMode && !room.currentItem);
+
+        // 라디오 상태
+        const radios = $$('input[name="part"]');
+        radios.forEach(r => {
+          r.disabled = me && me.readyPart;
+          r.checked = me && (
+            (r.value === 'yes' && me.willParticipate === true) ||
+            (r.value === 'no' && me.willParticipate === false)
+          );
+        });
+
+        $('#btnLockPart').disabled = (me && me.readyPart) || !room.currentItem;
+        $('#partStatus').textContent = me && me.readyPart
+          ? (me.willParticipate ? '응찰 확정' : '불응찰 확정')
+          : '';
+
+      } else if (room.phase === 'bid') {
+        show('#phaseChoose', false);
+        show('#phaseBid', true);
+
+        const isParticipant = room.participants && room.participants.includes(myName);
+        show('#bidBox', isParticipant && me && !me.readyBid);
+        show('#bidDisabled', !isParticipant);
+        show('#mobileBidBar', isParticipant && me && !me.readyBid);
+
+        $('#bidStatus').textContent = me && me.readyBid ? '입찰 완료' : '';
+
+        // 최대 입찰 가능 금액
+        if (me && !me.readyBid) {
+          const maxBid = me.balance + me.hold;
+          bidAmount = Math.min(bidAmount, maxBid);
+          syncBidInputs();
+        }
+      }
+    }
+
+    function syncBidInputs() {
+      const val = fmt(bidAmount);
+      $('#bidInput').value = val;
+      $('#bidInputMobile').value = val;
+    }
+
+    // 입찰 금액 조절
+    $$('[data-step]').forEach(btn => {
+      btn.onclick = () => {
+        const step = parseInt(btn.dataset.step) * STEP;
+        const me = currentRoom?.players?.find(p => p.name === myName);
+        const maxBid = me ? me.balance + me.hold : 0;
+        bidAmount = Math.max(0, Math.min(bidAmount + step, maxBid));
+        syncBidInputs();
+      };
+    });
+
+    // 입력 필드 동기화
+    $('#bidInput').oninput = () => {
+      bidAmount = parseInt($('#bidInput').value.replace(/[^\d]/g, '') || '0');
+      syncBidInputs();
+    };
+    $('#bidInputMobile').oninput = () => {
+      bidAmount = parseInt($('#bidInputMobile').value.replace(/[^\d]/g, '') || '0');
+      syncBidInputs();
+    };
+
+    // 응찰 확정
+    $('#btnLockPart').onclick = () => {
+      const checked = $('input[name="part"]:checked');
+      if (!checked) {
+        toast('응찰/불응찰을 선택하세요.');
+        return;
+      }
+      socket.emit('game:lockPart', { willParticipate: checked.value === 'yes' });
+    };
+
+    // 입찰 확정
+    function confirmBid() {
+      // 만 단위로 맞춤
+      const amount = Math.floor(bidAmount / STEP) * STEP;
+      socket.emit('game:confirmBid', { amount });
+    }
+
+    function cancelBid() {
+      socket.emit('game:cancelBid');
+    }
+
+    $('#btnConfirmBid').onclick = confirmBid;
+    $('#btnCancelBid').onclick = cancelBid;
+    $('#btnConfirmBidMobile').onclick = confirmBid;
+    $('#btnCancelBidMobile').onclick = cancelBid;
+
+    // 방장: 상품 선택
+    $('#selectItem').onchange = () => {
+      const item = $('#selectItem').value;
+      socket.emit('game:setItem', { item });
+    };
+
+    $('#btnRandom').onclick = () => {
+      const items = ['오징어', '독도새우', '호박', '명이나물'];
+      const item = items[Math.floor(Math.random() * items.length)];
+      $('#selectItem').value = item;
+      socket.emit('game:setItem', { item });
+    };
+
+    // 게임 종료
+    $('#btnEndGame').onclick = () => {
+      if (confirm('게임을 종료할까요?')) {
+        socket.emit('game:end');
+      }
+    };
+
+    function disableAllActions() {
+      $('#btnLockPart').disabled = true;
+      $('#btnConfirmBid').disabled = true;
+      $('#btnCancelBid').disabled = true;
+      $('#btnConfirmBidMobile').disabled = true;
+      $('#btnCancelBidMobile').disabled = true;
+      $$('input[name="part"]').forEach(r => r.disabled = true);
+      show('#mobileBidBar', false);
+    }
+
+    function toast(msg) {
+      $('#toastMsg').textContent = msg;
+      show('#toast', true);
+      setTimeout(() => show('#toast', false), 2500);
+    }
+  </script>
+</body>
+</html>
