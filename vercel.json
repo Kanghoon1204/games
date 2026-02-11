@@ -1,0 +1,8 @@
+{
+  "buildCommand": "",
+  "outputDirectory": "client",
+  "rewrites": [
+    { "source": "/ulleung", "destination": "/ulleung/room.html" },
+    { "source": "/ulleung/", "destination": "/ulleung/room.html" }
+  ]
+}

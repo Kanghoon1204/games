@@ -6,7 +6,8 @@
   <meta name="theme-color" content="#f8fafc">
   <title>울릉 한 접시 - 방</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
     * { font-family: 'Noto Sans KR', sans-serif; -webkit-tap-highlight-color: transparent; }
@@ -25,7 +26,7 @@
 
     <!-- 헤더 -->
     <header class="flex items-center justify-between py-4">
-      <a href="/" class="flex items-center gap-2">
+      <a href="../" class="flex items-center gap-2">
         <span class="text-2xl">🍽️</span>
         <h1 class="text-xl font-bold">울릉 한 접시</h1>
       </a>
@@ -141,67 +142,75 @@
           </button>
         </div>
 
-        <p class="text-xs text-slate-400 mt-3 text-center">15분 내 시작하지 않으면 자동 삭제됩니다</p>
+        <p class="text-xs text-slate-400 mt-3 text-center">30분 내 시작하지 않으면 자동 삭제됩니다</p>
       </section>
     </div>
 
   </div>
 
+  <script src="../firebase-config.js"></script>
   <script>
     const $ = s => document.querySelector(s);
     const show = (sel, yes) => $(sel).classList.toggle('hidden', !yes);
 
-    const serverUrl = location.hostname === 'localhost' ? 'http://localhost:3000' : '';
-    const socket = io(serverUrl, { reconnection: true, reconnectionDelay: 1000 });
+    const ITEMS = ['오징어', '독도새우', '호박', '명이나물'];
+    const randomItem = () => ITEMS[Math.floor(Math.random() * ITEMS.length)];
 
     let currentRoomId = null;
+    let roomRef = null;
+    let roomsRef = db.ref('rooms');
 
-    // 연결 상태
-    socket.on('connect', () => {
-      $('#badge').textContent = '연결됨';
-      $('#badge').className = 'badge bg-emerald-100 text-emerald-700';
-      socket.emit('rooms:get');
+    // 연결 상태 확인
+    db.ref('.info/connected').on('value', (snap) => {
+      if (snap.val() === true) {
+        $('#badge').textContent = '연결됨';
+        $('#badge').className = 'badge bg-emerald-100 text-emerald-700';
+      } else {
+        $('#badge').textContent = '연결 끊김';
+        $('#badge').className = 'badge bg-red-100 text-red-600';
+      }
     });
 
-    socket.on('disconnect', () => {
-      $('#badge').textContent = '연결 끊김';
-      $('#badge').className = 'badge bg-red-100 text-red-600';
-    });
+    // 방 목록 실시간 구독
+    function subscribeRooms() {
+      roomsRef.orderByChild('createdAt').on('value', (snap) => {
+        show('#roomsLoading', false);
+        const rooms = [];
+        snap.forEach(child => {
+          const room = child.val();
+          if (!room.started && !room.gameOver) {
+            rooms.push({ id: child.key, ...room });
+          }
+        });
+        rooms.reverse(); // 최신순
 
-    socket.on('connect_error', () => {
-      $('#badge').textContent = '연결 실패';
-      $('#badge').className = 'badge bg-red-100 text-red-600';
-    });
+        show('#roomsEmpty', rooms.length === 0);
+        show('#roomsList', rooms.length > 0);
 
-    socket.on('error', ({ message }) => alert(message));
-
-    // 방 목록
-    socket.on('rooms:list', (rooms) => {
-      show('#roomsLoading', false);
-      show('#roomsEmpty', rooms.length === 0);
-      show('#roomsList', rooms.length > 0);
-
-      const ul = $('#roomsList');
-      ul.innerHTML = '';
-
-      rooms.forEach(room => {
-        const li = document.createElement('li');
-        li.className = 'flex items-center justify-between p-3 bg-slate-50 rounded-lg';
-        li.innerHTML = `
-          <div>
-            <div class="font-medium">${room.id}</div>
-            <div class="text-xs text-slate-500">${room.hostName} · ${room.boardMode ? '보드게임' : '웹'}</div>
-          </div>
-          <div class="flex items-center gap-3">
-            <span class="text-sm text-slate-500">${room.playerCount}/8</span>
-            <button onclick="joinRoom('${room.id}')"
-              class="btn bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-3 py-1.5 text-sm"
-              ${room.playerCount >= 8 ? 'disabled' : ''}>입장</button>
-          </div>
-        `;
-        ul.appendChild(li);
+        const ul = $('#roomsList');
+        ul.innerHTML = '';
+        rooms.slice(0, 20).forEach(room => {
+          const playerCount = Object.keys(room.players || {}).length;
+          const li = document.createElement('li');
+          li.className = 'flex items-center justify-between p-3 bg-slate-50 rounded-lg';
+          li.innerHTML = `
+            <div>
+              <div class="font-medium">${room.id}</div>
+              <div class="text-xs text-slate-500">${room.hostName} · ${room.boardMode ? '보드게임' : '웹'}</div>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-sm text-slate-500">${playerCount}/8</span>
+              <button onclick="joinRoom('${room.id}')"
+                class="btn bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-3 py-1.5 text-sm"
+                ${playerCount >= 8 ? 'disabled' : ''}>입장</button>
+            </div>
+          `;
+          ul.appendChild(li);
+        });
       });
-    });
+    }
+
+    subscribeRooms();
 
     window.joinRoom = (roomId) => {
       location.href = `join.html?room=${encodeURIComponent(roomId)}`;
@@ -211,52 +220,122 @@
       show('#roomsLoading', true);
       show('#roomsList', false);
       show('#roomsEmpty', false);
-      socket.emit('rooms:get');
     };
 
     // 방 생성
-    $('#btnCreate').onclick = () => {
+    $('#btnCreate').onclick = async () => {
       const name = $('#hostName').value.trim();
       if (!name) {
         showError('닉네임을 입력하세요.');
         return;
       }
+
       const boardMode = $('input[name="mode"]:checked').value === 'board';
-      socket.emit('room:create', { hostName: name, boardMode });
+
+      // 방 ID 생성
+      let roomId = `${name}의방`;
+      let idx = 2;
+      let exists = true;
+
+      while (exists) {
+        const snap = await db.ref(`rooms/${roomId}`).once('value');
+        if (!snap.exists()) {
+          exists = false;
+        } else {
+          roomId = `${name}의방${idx++}`;
+          if (idx > 99) roomId = `${name}의방${Date.now()}`;
+        }
+      }
+
+      const playerId = generatePlayerId();
+      const room = {
+        id: roomId,
+        hostName: name,
+        hostId: playerId,
+        boardMode,
+        started: false,
+        gameOver: false,
+        round: 0,
+        phase: 'choose',
+        currentItem: '',
+        createdAt: firebase.database.ServerValue.TIMESTAMP,
+        players: {
+          [playerId]: {
+            id: playerId,
+            name,
+            balance: 1000000,
+            hold: 0,
+            items: [],
+            readyPart: false,
+            readyBid: false,
+            willParticipate: null,
+            joinedAt: firebase.database.ServerValue.TIMESTAMP
+          }
+        }
+      };
+
+      await db.ref(`rooms/${roomId}`).set(room);
+
+      sessionStorage.setItem('roomId', roomId);
+      sessionStorage.setItem('playerName', name);
+      sessionStorage.setItem('playerId', playerId);
+
+      currentRoomId = roomId;
+      showHostView(roomId, room);
     };
 
     $('#hostName').onkeydown = (e) => {
       if (e.key === 'Enter') $('#btnCreate').click();
     };
 
-    socket.on('room:created', ({ roomId, room }) => {
-      currentRoomId = roomId;
-      sessionStorage.setItem('roomId', roomId);
-      sessionStorage.setItem('playerName', room.hostName);
-
+    function showHostView(roomId, room) {
       show('#view-lobby', false);
       show('#view-host', true);
 
       $('#roomId').textContent = roomId;
-      const joinUrl = `${location.origin}/ulleung/join.html?room=${encodeURIComponent(roomId)}`;
+      const joinUrl = `${location.origin}${location.pathname.replace('room.html', 'join.html')}?room=${encodeURIComponent(roomId)}`;
       $('#shareLink').value = joinUrl;
 
-      updateWaitList(room.players);
-    });
+      // 방 실시간 구독
+      if (roomRef) roomRef.off();
+      roomRef = db.ref(`rooms/${roomId}`);
 
-    socket.on('room:updated', (room) => {
-      if (currentRoomId) updateWaitList(room.players);
-    });
+      roomRef.on('value', (snap) => {
+        if (!snap.exists()) {
+          alert('방이 삭제되었습니다.');
+          location.reload();
+          return;
+        }
+        const room = snap.val();
+        updateWaitList(room);
 
-    function updateWaitList(players) {
+        // 게임 시작됨
+        if (room.started) {
+          const name = sessionStorage.getItem('playerName');
+          location.href = `game.html?room=${encodeURIComponent(roomId)}&name=${encodeURIComponent(name)}`;
+        }
+      });
+
+      // 30분 후 자동 삭제 설정
+      setTimeout(() => {
+        roomRef.once('value', snap => {
+          if (snap.exists() && !snap.val().started) {
+            roomRef.remove();
+          }
+        });
+      }, 30 * 60 * 1000);
+    }
+
+    function updateWaitList(room) {
+      const players = Object.values(room.players || {});
       const ul = $('#waitList');
       ul.innerHTML = '';
-      players.forEach((p, i) => {
+      players.forEach(p => {
         const li = document.createElement('li');
         li.className = 'flex items-center justify-between p-2 bg-slate-50 rounded-lg';
         li.innerHTML = `
           <span>${p.name}</span>
-          ${p.isHost ? '<span class="badge bg-amber-100 text-amber-700">방장</span>' : ''}
+          ${p.name === room.hostName ? '<span class="badge bg-amber-100 text-amber-700">방장</span>' : ''}
         `;
         ul.appendChild(li);
       });
@@ -273,7 +352,6 @@
         $('#btnCopy').textContent = '복사됨!';
         setTimeout(() => $('#btnCopy').textContent = '복사', 1500);
       } catch (e) {
-        // Fallback
         $('#shareLink').select();
         document.execCommand('copy');
         $('#btnCopy').textContent = '복사됨!';
@@ -281,21 +359,36 @@
       }
     };
 
-    $('#btnStart').onclick = () => socket.emit('game:start');
+    $('#btnStart').onclick = async () => {
+      if (!currentRoomId) return;
 
-    socket.on('game:started', (room) => {
-      const name = sessionStorage.getItem('playerName');
-      location.href = `game.html?room=${encodeURIComponent(room.id)}&name=${encodeURIComponent(name)}`;
-    });
+      const updates = {
+        started: true,
+        phase: 'choose',
+        round: 0
+      };
 
-    $('#btnDelete').onclick = () => {
-      if (confirm('방을 삭제할까요?')) socket.emit('room:delete');
+      // 웹 모드면 랜덤 아이템
+      const snap = await db.ref(`rooms/${currentRoomId}/boardMode`).once('value');
+      if (!snap.val()) {
+        updates.currentItem = randomItem();
+      }
+
+      await db.ref(`rooms/${currentRoomId}`).update(updates);
     };
 
-    socket.on('room:deleted', () => {
-      sessionStorage.clear();
-      location.reload();
-    });
+    $('#btnDelete').onclick = async () => {
+      if (confirm('방을 삭제할까요?')) {
+        if (roomRef) roomRef.off();
+        await db.ref(`rooms/${currentRoomId}`).remove();
+        sessionStorage.clear();
+        location.reload();
+      }
+    };
+
+    function generatePlayerId() {
+      return 'P' + Math.random().toString(36).substr(2, 9);
+    }
 
     function showError(msg) {
       const el = $('#errCreate');

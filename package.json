@@ -1,12 +1,6 @@
 {
   "name": "games-platform",
   "version": "1.0.0",
-  "description": "Multiplayer games platform",
-  "scripts": {
-    "start": "node server/index.js",
-    "dev": "node --watch server/index.js"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  }
+  "description": "멀티플레이어 게임 플랫폼 (Firebase + Vercel)",
+  "private": true
 }

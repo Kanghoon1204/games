@@ -7,7 +7,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>울릉 한 접시 - 게임</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
     * { font-family: 'Noto Sans KR', sans-serif; -webkit-tap-highlight-color: transparent; }
@@ -18,10 +19,6 @@
     .card { background: white; border-radius: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
     .badge { font-size: 0.7rem; padding: 0.25rem 0.5rem; border-radius: 9999px; }
     .input-focus:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
-    .item-card { transition: all 0.2s; }
-    .item-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-    .phase-indicator { position: relative; }
-    .phase-indicator::after { content: ''; position: absolute; bottom: -2px; left: 0; right: 0; height: 2px; background: #6366f1; border-radius: 1px; }
     .safe-bottom { padding-bottom: calc(env(safe-area-inset-bottom, 0) + 100px); }
     @keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
     .animate-pulse-soft { animation: pulse-soft 1.5s infinite; }
@@ -62,7 +59,7 @@
       </div>
     </div>
 
-    <!-- 현재 상품 & 단계 표시 (모바일 최적화) -->
+    <!-- 현재 상품 & 단계 표시 -->
     <section id="currentRoundInfo" class="card p-4 mb-4">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-3">
@@ -79,7 +76,6 @@
         </div>
       </div>
 
-      <!-- 응찰자 목록 (입찰 단계에서만) -->
       <div id="participantsBox" class="hidden mt-3 pt-3 border-t">
         <div class="text-xs text-slate-500 mb-2">응찰자 (<span id="participantCount">0</span>명)</div>
         <div id="participantsList" class="flex flex-wrap gap-1"></div>
@@ -207,13 +203,11 @@
 
       <!-- 오른쪽: 플레이어 현황 + 라운드 기록 -->
       <section class="space-y-4">
-        <!-- 플레이어 현황 -->
         <div class="card p-4">
           <h3 class="font-bold mb-3">플레이어 현황</h3>
           <ul id="playerList" class="space-y-2"></ul>
         </div>
 
-        <!-- 라운드 기록 -->
         <div class="card p-4">
           <h3 class="font-bold mb-3">라운드 기록</h3>
           <ul id="roundLog" class="space-y-2 max-h-48 overflow-y-auto"></ul>
@@ -300,6 +294,7 @@
     <div id="toastMsg" class="font-medium"></div>
   </div>
 
+  <script src="../firebase-config.js"></script>
   <script>
     const $ = s => document.querySelector(s);
     const $$ = s => document.querySelectorAll(s);
@@ -309,6 +304,7 @@
     const params = new URLSearchParams(location.search);
     const roomId = params.get('room') || '';
     const myName = params.get('name') || sessionStorage.getItem('playerName') || '';
+    const myPlayerId = sessionStorage.getItem('playerId') || '';
 
     if (!roomId || !myName) {
       alert('잘못된 접근입니다.');
@@ -318,13 +314,9 @@
     $('#roomId').textContent = roomId;
     $('#myName').textContent = myName;
 
-    const serverUrl = location.hostname === 'localhost'
-      ? 'http://localhost:3000'
-      : location.origin;
+    const ITEMS = ['오징어', '독도새우', '호박', '명이나물'];
+    const randomItem = () => ITEMS[Math.floor(Math.random() * ITEMS.length)];
 
-    const socket = io(serverUrl);
-
-    // 이미지 매핑
     const ITEM_IMG = {
       '오징어': '../assets/squid.png',
       '독도새우': '../assets/shrimp.png',
@@ -354,63 +346,31 @@
     let currentRoom = null;
     let bidAmount = 0;
     const STEP = 10000;
+    let roomRef = db.ref(`rooms/${roomId}`);
+    let processing = false;
 
-    // 연결
-    socket.on('connect', () => {
-      $('#badge').textContent = '연결됨';
-      $('#badge').className = 'badge bg-emerald-100 text-emerald-700';
-      socket.emit('room:join', { roomId, playerName: myName });
-    });
-
-    socket.on('disconnect', () => {
-      $('#badge').textContent = '연결 끊김';
-      $('#badge').className = 'badge bg-red-100 text-red-600';
-    });
-
-    socket.on('error', ({ message }) => {
-      toast(message, 'error');
-    });
-
-    socket.on('room:joined', ({ room }) => {
-      updateUI(room);
-    });
-
-    socket.on('room:updated', (room) => {
-      updateUI(room);
-    });
-
-    socket.on('game:started', (room) => {
-      updateUI(room);
-    });
-
-    socket.on('round:result', ({ round, item, winners, room }) => {
-      if (winners.includes(myName)) {
-        toast(`${ITEM_EMOJI[item] || '🎁'} ${item} 획득!`, 'success');
-      } else if (room.participants && room.participants.includes(myName)) {
-        toast('입찰 실패 (환불됨)', 'info');
+    // 연결 상태 확인
+    db.ref('.info/connected').on('value', (snap) => {
+      if (snap.val() === true) {
+        $('#badge').textContent = '연결됨';
+        $('#badge').className = 'badge bg-emerald-100 text-emerald-700';
       } else {
-        toast('라운드 종료', 'info');
+        $('#badge').textContent = '연결 끊김';
+        $('#badge').className = 'badge bg-red-100 text-red-600';
       }
-      updateUI(room);
     });
 
-    socket.on('game:ended', ({ message, winners, room }) => {
-      show('#endedBox', true);
-      if (winners && winners.length > 0) {
-        $('#endMsg').textContent = `우승: ${winners.join(', ')}`;
-        if (winners.includes(myName)) {
-          toast('축하합니다! 승리!', 'success');
-        }
-      } else {
-        $('#endMsg').textContent = message || '게임 종료';
+    // 방 실시간 구독
+    roomRef.on('value', (snap) => {
+      if (!snap.exists()) {
+        alert('방이 삭제되었습니다.');
+        location.href = 'room.html';
+        return;
       }
+      const room = snap.val();
+      room.id = roomId;
       updateUI(room);
-      disableAllActions();
-    });
-
-    socket.on('room:deleted', () => {
-      alert('방이 삭제되었습니다.');
-      location.href = 'room.html';
+      checkPhaseAdvance(room);
     });
 
     function updateUI(room) {
@@ -419,8 +379,8 @@
 
       $('#round').textContent = room.round || 0;
 
-      // 방장 체크
-      isHost = room.hostName === myName || (room.players[0] && room.players[0].name === myName);
+      const players = Object.values(room.players || {});
+      isHost = room.hostName === myName;
       show('#hostBadge', isHost);
       show('#hostPanel', isHost && room.boardMode);
 
@@ -431,13 +391,12 @@
       }
 
       // 내 정보
-      const me = room.players.find(p => p.name === myName);
+      const me = players.find(p => p.name === myName);
       if (me) {
         $('#myBalance').textContent = fmt(me.balance);
         $('#myHold').textContent = fmt(me.hold);
         show('#holdInfo', me.hold > 0);
 
-        // 내 소지품
         const itemsContainer = $('#myItems');
         itemsContainer.innerHTML = '';
         const items = me.items || [];
@@ -447,7 +406,7 @@
 
         items.forEach(item => {
           const div = document.createElement('div');
-          div.className = 'item-card bg-slate-50 rounded-lg p-2 text-center';
+          div.className = 'bg-slate-50 rounded-lg p-2 text-center';
           div.innerHTML = `<img src="${ITEM_IMG[item] || ''}" class="w-8 h-8 mx-auto" alt="${item}">`;
           itemsContainer.appendChild(div);
         });
@@ -459,29 +418,25 @@
       setItemImg($('#imgCurrent'), room.currentItem);
       show('#imgCurrent', !!room.currentItem);
       show('#noItemYet', !room.currentItem);
-
       setItemImg($('#imgMobile'), room.currentItem);
       $('#itemMobile').textContent = item || '상품';
 
-      // 최대 입찰 가능 금액 표시
       if (me) {
         $('#maxBidMobile').textContent = fmt(me.balance + me.hold);
       }
 
       // Phase 표시
-      const phaseLabels = {
-        'choose': '응찰 선택',
-        'bid': '비공개 입찰'
-      };
+      const phaseLabels = { 'choose': '응찰 선택', 'bid': '비공개 입찰' };
       $('#phaseText').textContent = phaseLabels[room.phase] || '-';
 
       // 응찰자 목록
-      if (room.participants && room.participants.length > 0) {
+      const participants = players.filter(p => p.willParticipate === true).map(p => p.name);
+      if (room.phase === 'bid' && participants.length > 0) {
         show('#participantsBox', true);
-        $('#participantCount').textContent = room.participants.length;
+        $('#participantCount').textContent = participants.length;
         const pDiv = $('#participantsList');
         pDiv.innerHTML = '';
-        room.participants.forEach(name => {
+        participants.forEach(name => {
           const span = document.createElement('span');
           span.className = `badge ${name === myName ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}`;
           span.textContent = name;
@@ -494,13 +449,12 @@
       // 라운드 로그
       const logUl = $('#roundLog');
       logUl.innerHTML = '';
-      const logs = room.roundLogs || [];
+      const logs = Object.values(room.roundLogs || {});
       show('#noLogs', logs.length === 0);
-
       logs.slice().reverse().forEach(log => {
         const li = document.createElement('li');
         li.className = 'bg-slate-50 rounded-lg p-2';
-        const winnersText = log.winners.length ? log.winners.join(', ') : '낙찰자 없음';
+        const winnersText = log.winners?.length ? log.winners.join(', ') : '낙찰자 없음';
         li.innerHTML = `
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
@@ -516,7 +470,7 @@
       // 플레이어 현황
       const plUl = $('#playerList');
       plUl.innerHTML = '';
-      room.players.forEach((p, i) => {
+      players.forEach((p, i) => {
         const isMe = p.name === myName;
         let status = '-';
         let statusClass = 'bg-slate-100 text-slate-600';
@@ -530,7 +484,7 @@
             statusClass = 'bg-amber-100 text-amber-700 animate-pulse-soft';
           }
         } else if (room.phase === 'bid') {
-          if (!room.participants.includes(p.name)) {
+          if (p.willParticipate !== true) {
             status = '불응찰';
             statusClass = 'bg-slate-100 text-slate-500';
           } else if (p.readyBid) {
@@ -548,22 +502,37 @@
           <div class="flex items-center gap-2">
             <span class="text-sm ${isMe ? 'font-medium' : ''}">${p.name}</span>
             ${isMe ? '<span class="text-xs text-indigo-500">(나)</span>' : ''}
-            ${p.isHost ? '<span class="badge bg-amber-100 text-amber-700">방장</span>' : ''}
+            ${p.name === room.hostName ? '<span class="badge bg-amber-100 text-amber-700">방장</span>' : ''}
           </div>
           <div class="flex items-center gap-2">
-            <span class="text-xs text-slate-400">${p.itemCount || 0}개</span>
+            <span class="text-xs text-slate-400">${(p.items || []).length}개</span>
             <span class="badge ${statusClass}">${status}</span>
           </div>
         `;
         plUl.appendChild(li);
       });
 
+      // 게임 종료
+      if (room.gameOver) {
+        show('#endedBox', true);
+        const winners = room.finalWinners || [];
+        if (winners.length > 0) {
+          $('#endMsg').textContent = `우승: ${winners.join(', ')}`;
+          if (winners.includes(myName)) {
+            toast('축하합니다! 승리!', 'success');
+          }
+        } else {
+          $('#endMsg').textContent = '게임 종료';
+        }
+        disableAllActions();
+        return;
+      }
+
       // Phase별 UI 전환
       if (room.phase === 'choose') {
         show('#phaseChoose', true);
         show('#phaseBid', false);
         show('#mobileBidBar', false);
-
         show('#chooseHint', room.boardMode && !room.currentItem);
 
         const radios = $$('input[name="part"]');
@@ -584,7 +553,7 @@
         show('#phaseChoose', false);
         show('#phaseBid', true);
 
-        const isParticipant = room.participants && room.participants.includes(myName);
+        const isParticipant = me && me.willParticipate === true;
         const canBid = isParticipant && me && !me.readyBid;
 
         show('#bidBox', canBid);
@@ -608,6 +577,162 @@
       });
     }
 
+    // 페이즈 자동 진행 체크
+    async function checkPhaseAdvance(room) {
+      if (processing || room.gameOver) return;
+
+      const players = Object.values(room.players || {});
+
+      if (room.phase === 'choose') {
+        const allReady = players.every(p => p.readyPart);
+        if (allReady && isHost && room.currentItem) {
+          processing = true;
+          await advanceToBid(room);
+          processing = false;
+        }
+      } else if (room.phase === 'bid') {
+        const bidders = players.filter(p => p.willParticipate === true);
+        const allBidReady = bidders.every(p => p.readyBid);
+        if (allBidReady && isHost) {
+          processing = true;
+          await settleAuction(room);
+          processing = false;
+        }
+      }
+    }
+
+    async function advanceToBid(room) {
+      const players = Object.values(room.players || {});
+      const participants = players.filter(p => p.willParticipate === true);
+
+      if (participants.length === 0) {
+        // 모두 불응찰
+        await nextRound(room, [], room.currentItem);
+      } else if (participants.length === 1) {
+        // 1명만 응찰 -> 자동 낙찰
+        const winner = participants[0];
+        const playerRef = Object.keys(room.players).find(k => room.players[k].name === winner.name);
+        if (playerRef) {
+          await db.ref(`rooms/${roomId}/players/${playerRef}`).update({
+            balance: winner.balance + winner.hold,
+            hold: 0,
+            items: [...(winner.items || []), room.currentItem]
+          });
+        }
+        await nextRound(room, [winner.name], room.currentItem);
+      } else {
+        // 입찰 단계로 진행
+        await roomRef.update({ phase: 'bid' });
+      }
+    }
+
+    async function settleAuction(room) {
+      const players = Object.values(room.players || {});
+      const bidders = players.filter(p => p.willParticipate === true);
+      const holds = bidders.map(p => p.hold || 0);
+      const maxHold = Math.max(0, ...holds);
+      const allZero = holds.every(h => h === 0);
+
+      let winners = [];
+      const updates = {};
+
+      if (allZero) {
+        // 모두 0원 -> 모두 낙찰
+        winners = bidders.map(p => p.name);
+        for (const [key, p] of Object.entries(room.players)) {
+          if (p.willParticipate === true) {
+            updates[`players/${key}/balance`] = p.balance + p.hold;
+            updates[`players/${key}/hold`] = 0;
+            updates[`players/${key}/items`] = [...(p.items || []), room.currentItem];
+          }
+        }
+      } else if (maxHold > 0) {
+        // 최고가 입찰자 낙찰
+        winners = bidders.filter(p => p.hold === maxHold).map(p => p.name);
+        for (const [key, p] of Object.entries(room.players)) {
+          if (p.willParticipate === true) {
+            if (winners.includes(p.name)) {
+              updates[`players/${key}/items`] = [...(p.items || []), room.currentItem];
+              updates[`players/${key}/hold`] = 0;
+            } else {
+              updates[`players/${key}/balance`] = p.balance + p.hold;
+              updates[`players/${key}/hold`] = 0;
+            }
+          }
+        }
+      }
+
+      // 불응찰자 보류금 환불
+      for (const [key, p] of Object.entries(room.players)) {
+        if (p.willParticipate !== true && p.hold > 0) {
+          updates[`players/${key}/balance`] = p.balance + p.hold;
+          updates[`players/${key}/hold`] = 0;
+        }
+      }
+
+      await roomRef.update(updates);
+      await nextRound(room, winners, room.currentItem);
+    }
+
+    async function nextRound(room, winners, item) {
+      const newRound = (room.round || 0) + 1;
+
+      // 승리 체크
+      const snap = await roomRef.once('value');
+      const freshRoom = snap.val();
+      const players = Object.values(freshRoom.players || {});
+
+      const gameWinners = players.filter(p => checkWin(p.items)).map(p => p.name);
+
+      if (gameWinners.length > 0) {
+        await roomRef.update({
+          gameOver: true,
+          finalWinners: gameWinners
+        });
+        toast(gameWinners.includes(myName) ? '축하합니다! 승리!' : `${gameWinners.join(', ')} 승리!`, 'success');
+        return;
+      }
+
+      // 토스트
+      if (winners.includes(myName)) {
+        toast(`${ITEM_EMOJI[item] || '🎁'} ${item} 획득!`, 'success');
+      }
+
+      // 라운드 로그
+      const logKey = db.ref().push().key;
+      const updates = {
+        round: newRound,
+        phase: 'choose',
+        [`roundLogs/${logKey}`]: { round: newRound, item, winners }
+      };
+
+      // 플레이어 상태 리셋
+      for (const key of Object.keys(freshRoom.players)) {
+        updates[`players/${key}/readyPart`] = false;
+        updates[`players/${key}/readyBid`] = false;
+        updates[`players/${key}/willParticipate`] = null;
+      }
+
+      // 웹 모드면 새 아이템
+      if (!room.boardMode) {
+        updates.currentItem = randomItem();
+      } else {
+        updates.currentItem = '';
+      }
+
+      await roomRef.update(updates);
+    }
+
+    function checkWin(items) {
+      if (!items || items.length === 0) return false;
+      const count = {};
+      items.forEach(it => count[it] = (count[it] || 0) + 1);
+      if (items.length >= 5) return true;
+      if (Object.values(count).some(v => v >= 3)) return true;
+      if (new Set(items).size >= 4) return true;
+      return false;
+    }
+
     function syncBidInputs() {
       const val = fmt(bidAmount);
       if ($('#bidInput')) $('#bidInput').value = val;
@@ -618,14 +743,14 @@
     $$('[data-step]').forEach(btn => {
       btn.onclick = () => {
         const step = parseInt(btn.dataset.step) * STEP;
-        const me = currentRoom?.players?.find(p => p.name === myName);
+        const players = Object.values(currentRoom?.players || {});
+        const me = players.find(p => p.name === myName);
         const maxBid = me ? me.balance + me.hold : 0;
         bidAmount = Math.max(0, Math.min(bidAmount + step, maxBid));
         syncBidInputs();
       };
     });
 
-    // 입력 필드 동기화
     $('#bidInput').oninput = () => {
       bidAmount = parseInt($('#bidInput').value.replace(/[^\d]/g, '') || '0');
       syncBidInputs();
@@ -636,23 +761,63 @@
     };
 
     // 응찰 확정
-    $('#btnLockPart').onclick = () => {
+    $('#btnLockPart').onclick = async () => {
       const checked = $('input[name="part"]:checked');
       if (!checked) {
         toast('응찰/불응찰을 선택하세요.', 'error');
         return;
       }
-      socket.emit('game:lockPart', { willParticipate: checked.value === 'yes' });
+
+      const willParticipate = checked.value === 'yes';
+      const players = Object.values(currentRoom?.players || {});
+      const me = players.find(p => p.name === myName);
+      const playerKey = Object.keys(currentRoom.players).find(k => currentRoom.players[k].name === myName);
+
+      if (!playerKey) return;
+
+      const updates = {
+        readyPart: true,
+        willParticipate
+      };
+
+      if (!willParticipate) {
+        updates.balance = me.balance + 50000;
+      }
+
+      await db.ref(`rooms/${roomId}/players/${playerKey}`).update(updates);
     };
 
     // 입찰 확정
-    function confirmBid() {
+    async function confirmBid() {
       const amount = Math.floor(bidAmount / STEP) * STEP;
-      socket.emit('game:confirmBid', { amount });
+      const players = Object.values(currentRoom?.players || {});
+      const me = players.find(p => p.name === myName);
+      const playerKey = Object.keys(currentRoom.players).find(k => currentRoom.players[k].name === myName);
+
+      if (!playerKey || !me) return;
+
+      const maxBid = me.balance + me.hold;
+      const finalAmount = Math.min(amount, maxBid);
+
+      await db.ref(`rooms/${roomId}/players/${playerKey}`).update({
+        hold: finalAmount,
+        balance: maxBid - finalAmount,
+        readyBid: true
+      });
     }
 
-    function cancelBid() {
-      socket.emit('game:cancelBid');
+    async function cancelBid() {
+      const players = Object.values(currentRoom?.players || {});
+      const me = players.find(p => p.name === myName);
+      const playerKey = Object.keys(currentRoom.players).find(k => currentRoom.players[k].name === myName);
+
+      if (!playerKey || !me) return;
+
+      await db.ref(`rooms/${roomId}/players/${playerKey}`).update({
+        balance: me.balance + me.hold,
+        hold: 0,
+        readyBid: true
+      });
     }
 
     $('#btnConfirmBid').onclick = confirmBid;
@@ -662,21 +827,29 @@
 
     // 방장: 상품 선택
     $$('.item-select-btn').forEach(btn => {
-      btn.onclick = () => {
-        socket.emit('game:setItem', { item: btn.dataset.item });
+      btn.onclick = async () => {
+        // 새 라운드 시작 시 플레이어 상태 리셋
+        const updates = { currentItem: btn.dataset.item };
+        for (const key of Object.keys(currentRoom.players)) {
+          updates[`players/${key}/readyPart`] = false;
+          updates[`players/${key}/readyBid`] = false;
+          updates[`players/${key}/willParticipate`] = null;
+        }
+        await roomRef.update(updates);
       };
     });
 
     $('#btnRandom').onclick = () => {
-      const items = ['오징어', '독도새우', '호박', '명이나물'];
-      const item = items[Math.floor(Math.random() * items.length)];
-      socket.emit('game:setItem', { item });
+      const item = randomItem();
+      $$('.item-select-btn').forEach(btn => {
+        if (btn.dataset.item === item) btn.click();
+      });
     };
 
     // 게임 종료
-    $('#btnEndGame').onclick = () => {
+    $('#btnEndGame').onclick = async () => {
       if (confirm('게임을 종료할까요?')) {
-        socket.emit('game:end');
+        await roomRef.update({ gameOver: true });
       }
     };
 
@@ -691,11 +864,7 @@
     }
 
     function toast(msg, type = 'info') {
-      const icons = {
-        success: '🎉',
-        error: '⚠️',
-        info: '💡'
-      };
+      const icons = { success: '🎉', error: '⚠️', info: '💡' };
       $('#toastIcon').textContent = icons[type] || icons.info;
       $('#toastMsg').textContent = msg;
       show('#toast', true);

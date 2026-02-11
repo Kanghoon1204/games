@@ -6,7 +6,8 @@
   <meta name="theme-color" content="#f8fafc">
   <title>울릉 한 접시 - 참가</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
     * { font-family: 'Noto Sans KR', sans-serif; -webkit-tap-highlight-color: transparent; }
@@ -101,6 +102,7 @@
 
   </div>
 
+  <script src="../firebase-config.js"></script>
   <script>
     const $ = s => document.querySelector(s);
     const show = (sel, yes) => $(sel).classList.toggle('hidden', !yes);
@@ -115,61 +117,121 @@
 
     $('#roomIdDisplay').textContent = roomId;
 
-    const serverUrl = location.hostname === 'localhost' ? 'http://localhost:3000' : '';
-    const socket = io(serverUrl, { reconnection: true, reconnectionDelay: 1000 });
-
     let myName = '';
+    let myPlayerId = '';
+    let roomRef = null;
 
-    socket.on('connect', () => {
-      $('#badge').textContent = '연결됨';
-      $('#badge').className = 'badge bg-emerald-100 text-emerald-700';
+    // 연결 상태 확인
+    db.ref('.info/connected').on('value', (snap) => {
+      if (snap.val() === true) {
+        $('#badge').textContent = '연결됨';
+        $('#badge').className = 'badge bg-emerald-100 text-emerald-700';
+      } else {
+        $('#badge').textContent = '연결 끊김';
+        $('#badge').className = 'badge bg-red-100 text-red-600';
+      }
     });
-
-    socket.on('disconnect', () => {
-      $('#badge').textContent = '연결 끊김';
-      $('#badge').className = 'badge bg-red-100 text-red-600';
-    });
-
-    socket.on('error', ({ message }) => showError(message));
 
     // 참가
-    $('#btnJoin').onclick = () => {
+    $('#btnJoin').onclick = async () => {
       const name = $('#playerName').value.trim();
       if (!name) {
         showError('닉네임을 입력하세요.');
         return;
       }
+
+      // 방 존재 확인
+      const snap = await db.ref(`rooms/${roomId}`).once('value');
+      if (!snap.exists()) {
+        showError('존재하지 않는 방입니다.');
+        return;
+      }
+
+      const room = snap.val();
+
+      // 게임 시작됨
+      if (room.started) {
+        showError('이미 게임이 시작된 방입니다.');
+        return;
+      }
+
+      // 정원 확인
+      const playerCount = Object.keys(room.players || {}).length;
+      if (playerCount >= 8) {
+        showError('정원이 가득 찼습니다.');
+        return;
+      }
+
+      // 닉네임 중복 확인
+      const names = Object.values(room.players || {}).map(p => p.name);
+      if (names.includes(name)) {
+        showError('이미 사용 중인 닉네임입니다.');
+        return;
+      }
+
       myName = name;
-      socket.emit('room:join', { roomId, playerName: name });
+      myPlayerId = generatePlayerId();
+
+      // 플레이어 추가
+      await db.ref(`rooms/${roomId}/players/${myPlayerId}`).set({
+        id: myPlayerId,
+        name,
+        balance: 1000000,
+        hold: 0,
+        items: [],
+        readyPart: false,
+        readyBid: false,
+        willParticipate: null,
+        joinedAt: firebase.database.ServerValue.TIMESTAMP
+      });
+
+      sessionStorage.setItem('roomId', roomId);
+      sessionStorage.setItem('playerName', name);
+      sessionStorage.setItem('playerId', myPlayerId);
+
+      showLobby();
     };
 
     $('#playerName').onkeydown = (e) => {
       if (e.key === 'Enter') $('#btnJoin').click();
     };
 
-    // 참가 완료
-    socket.on('room:joined', ({ roomId, room, playerName, reconnected }) => {
-      myName = playerName;
-      sessionStorage.setItem('roomId', roomId);
-      sessionStorage.setItem('playerName', playerName);
-
+    function showLobby() {
       show('#view-join', false);
       show('#view-lobby', true);
       $('#lobbyRoom').textContent = roomId;
 
-      if (reconnected && room.started) {
-        show('#waiting', false);
-        show('#started', true);
-      }
+      roomRef = db.ref(`rooms/${roomId}`);
+      roomRef.on('value', (snap) => {
+        if (!snap.exists()) {
+          alert('방이 삭제되었습니다.');
+          sessionStorage.clear();
+          location.href = 'room.html';
+          return;
+        }
 
-      updatePlayerList(room.players);
-    });
+        const room = snap.val();
+        updatePlayerList(room);
 
-    socket.on('room:updated', (room) => {
-      updatePlayerList(room.players);
-    });
+        // 게임 시작됨
+        if (room.started) {
+          show('#waiting', false);
+          show('#started', true);
 
-    function updatePlayerList(players) {
+          $('#goGame').onclick = () => {
+            location.href = `game.html?room=${encodeURIComponent(roomId)}&name=${encodeURIComponent(myName)}`;
+          };
+
+          // 2초 후 자동 이동
+          setTimeout(() => {
+            location.href = `game.html?room=${encodeURIComponent(roomId)}&name=${encodeURIComponent(myName)}`;
+          }, 2000);
+        }
+      });
+    }
+
+    function updatePlayerList(room) {
+      const players = Object.values(room.players || {});
       const ul = $('#playerList');
       ul.innerHTML = '';
       players.forEach(p => {
@@ -178,40 +240,26 @@
         li.className = `flex items-center justify-between p-2 rounded-lg ${isMe ? 'bg-indigo-50' : 'bg-slate-50'}`;
         li.innerHTML = `
           <span>${p.name} ${isMe ? '<span class="text-xs text-indigo-500">(나)</span>' : ''}</span>
-          ${p.isHost ? '<span class="badge bg-amber-100 text-amber-700">방장</span>' : ''}
+          ${p.name === room.hostName ? '<span class="badge bg-amber-100 text-amber-700">방장</span>' : ''}
         `;
         ul.appendChild(li);
       });
       $('#count').textContent = players.length;
     }
 
-    // 게임 시작
-    socket.on('game:started', (room) => {
-      show('#waiting', false);
-      show('#started', true);
-
-      $('#goGame').onclick = () => {
-        location.href = `game.html?room=${encodeURIComponent(room.id)}&name=${encodeURIComponent(myName)}`;
-      };
-
-      // 2초 후 자동 이동
-      setTimeout(() => {
-        location.href = `game.html?room=${encodeURIComponent(room.id)}&name=${encodeURIComponent(myName)}`;
-      }, 2000);
-    });
-
     // 나가기
-    $('#btnLeave').onclick = () => {
-      socket.emit('room:leave');
+    $('#btnLeave').onclick = async () => {
+      if (roomRef) roomRef.off();
+      if (myPlayerId) {
+        await db.ref(`rooms/${roomId}/players/${myPlayerId}`).remove();
+      }
       sessionStorage.clear();
       location.href = 'room.html';
     };
 
-    socket.on('room:deleted', () => {
-      alert('방이 삭제되었습니다.');
-      sessionStorage.clear();
-      location.href = 'room.html';
-    });
+    function generatePlayerId() {
+      return 'P' + Math.random().toString(36).substr(2, 9);
+    }
 
     function showError(msg) {
       const el = $('#errJoin');
