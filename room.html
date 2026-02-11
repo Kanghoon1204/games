@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>울릉 한 접시 · 방(lobby)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Firebase (모듈) -->
+<script type="module" id="fb-sdk">
+  const firebaseConfig = {
+    apiKey: "AIzaSyBwHIITHru4Od1fjwg6OOMNTjRFbvwpVkg",
+    authDomain: "boardgame-1a3dd.firebaseapp.com",
+    projectId: "boardgame-1a3dd",
+    storageBucket: "boardgame-1a3dd.firebasestorage.app",
+    messagingSenderId: "278191503167",
+    appId: "1:278191503167:web:a02892e0d742e12339058a",
+    measurementId: "G-0EQB5WN6QE"
+  };
+
+  const ready = (async () => {
+    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js");
+    const app = initializeApp(firebaseConfig);
+    const fs  = await import("https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js");
+    const au  = await import("https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js");
+    try { const { getAnalytics } = await import("https://www.gstatic.com/firebasejs/10.13.1/firebase-analytics.js"); getAnalytics(app); } catch {}
+    window.__fb = { app, ...fs, ...au };
+  })();
+  window.firebaseReady = ready;
+</script>
+
+<style>
+  .mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum";}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+</style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+<div class="max-w-4xl mx-auto p-4 md:p-6 space-y-6">
+
+  <header class="flex items-center justify-between">
+    <h1 class="text-xl md:text-2xl font-bold">울릉 한 접시 <span class="text-slate-500">· 방</span></h1>
+    <span id="badge" class="text-xs px-2 py-1 rounded bg-slate-200">연결 준비중…</span>
+  </header>
+
+  <!-- 이미 만들어진 방으로 입장 -->
+  <section id="view-list" class="bg-white rounded-xl shadow p-4 md:p-6">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-semibold">이미 만들어진 방으로 입장</h2>
+      <div class="text-xs text-slate-500">진행 전 방만 표시 · 실시간</div>
+    </div>
+
+    <div class="flex items-center justify-between mb-2">
+      <button id="btnRefresh" class="btn bg-slate-200 hover:bg-slate-300 rounded px-3 py-2 text-sm">목록 새로고침</button>
+      <span class="text-xs text-slate-500">* 진행 중/종료 방은 입장 불가</span>
+    </div>
+
+    <div id="roomsEmpty" class="hidden text-sm text-slate-500 border rounded p-3">
+      현재 입장 가능한 방이 없습니다. 새로 만들어 시작해 보세요!
+    </div>
+
+    <ul id="roomsList" class="grid gap-3 md:grid-cols-2"></ul>
+
+    <div id="errJoinList" class="hidden mt-3 p-3 rounded bg-rose-50 border border-rose-200 text-rose-700 text-sm"></div>
+  </section>
+
+  <!-- 새 방 만들기 -->
+  <section id="view-create" class="bg-white rounded-xl shadow p-4 md:p-6">
+    <h2 class="font-semibold mb-3">새 방 만들기</h2>
+
+    <label class="text-sm block mb-1">내 닉네임(방장)</label>
+    <input id="hostName" type="text" placeholder="예: 상회장" class="w-full border rounded px-3 py-2 mb-3" />
+
+    <!-- 진행 방식 선택 -->
+    <div class="mb-3 text-sm space-y-2">
+      <div class="font-medium">진행 방식</div>
+      <label class="flex items-center gap-2">
+        <input type="radio" name="mode" value="board" checked>
+        <span>보드게임 카드 사용(매 라운드 방장이 상품 수동 등록)</span>
+      </label>
+      <label class="flex items-center gap-2">
+        <input type="radio" name="mode" value="web">
+        <span>웹 전용(상품 자동 결정)</span>
+      </label>
+    </div>
+
+    <button id="btnCreate" class="btn w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded px-4 py-2" disabled>
+      방 만들기
+    </button>
+    <div id="errCreate" class="hidden mt-3 p-3 rounded bg-rose-50 border border-rose-200 text-rose-700 text-sm"></div>
+  </section>
+
+  <!-- 방장: 공유/대기 -->
+  <section id="view-host" class="hidden bg-white rounded-xl shadow p-4 md:p-6">
+    <div class="flex items-center justify-between">
+      <h2 class="font-semibold">Room <span id="roomId" class="mono"></span></h2>
+      <div class="text-sm">참가자 <span id="count" class="font-bold">0</span> / <span id="maxPlayers">8</span></div>
+    </div>
+
+    <div class="text-xs text-slate-600 mt-1" id="modeInfo"></div>
+
+    <div class="grid md:grid-cols-2 gap-4 mt-4">
+      <div class="border rounded-lg p-4">
+        <h3 class="font-semibold mb-2">참가 링크 공유</h3>
+        <div class="flex items-center gap-2">
+          <input id="shareLink" class="w-full border rounded px-3 py-2 text-xs" readonly />
+          <button id="btnCopy" class="btn bg-slate-800 text-white rounded px-3 py-2">복사</button>
+        </div>
+        <p class="text-xs text-slate-500 mt-2">최대 8명 접속. <b>3명 이상</b>이면 시작 가능.</p>
+      </div>
+
+      <div class="border rounded-lg p-4">
+        <h3 class="font-semibold mb-2">대기 중 참가자</h3>
+        <ul id="waitList" class="space-y-2 text-sm"></ul>
+      </div>
+    </div>
+
+    <div class="mt-4 flex items-center gap-2">
+      <button id="btnStart" class="btn bg-indigo-600 disabled:bg-indigo-600/50 text-white rounded px-4 py-2" disabled>
+        시작하기
+      </button>
+      <span class="text-xs text-slate-600">3–8명에서 시작 가능</span>
+    </div>
+
+    <!-- 방 삭제 -->
+    <div class="mt-2">
+      <button id="btnDeleteRoom" class="btn bg-rose-600 hover:bg-rose-700 text-white rounded px-4 py-2">방 삭제</button>
+    </div>
+
+    <div id="errHost" class="hidden mt-3 p-3 rounded bg-rose-50 border border-rose-200 text-rose-700 text-sm"></div>
+  </section>
+</div>
+
+<script type="module">
+  const $ = s => document.querySelector(s);
+  const show = (sel, yes) => $(sel).classList.toggle("hidden", !yes);
+  const setBadge=(t,c)=>{const b=$("#badge");b.textContent=t;b.className=`text-xs px-2 py-1 rounded ${c}`};
+
+  await window.firebaseReady;
+  const { 
+    getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, onSnapshot, getDocs,
+    collection, serverTimestamp,
+    getAuth, signInAnonymously 
+  } = window.__fb;
+
+  const db=getFirestore(), auth=getAuth();
+  async function ensureAuth(){ if(!auth.currentUser) await signInAnonymously(auth) }
+
+  // 연결
+  try{ await ensureAuth(); setBadge("연결됨","bg-indigo-600 text-white"); $("#btnCreate").disabled=false; }
+  catch{ setBadge("연결 실패","bg-rose-600 text-white"); }
+
+  // ===== 방 목록 =====
+  const MAX_PLAYERS = 8;
+  $("#maxPlayers").textContent = MAX_PLAYERS;
+
+  const listEl = $("#roomsList");
+  const errJoinList = $("#errJoinList");
+
+  function roomCard({id, hostName, players=[], started=false, boardMode}) {
+    const count = Array.isArray(players) ? players.length : 0;
+    const disabled = started || count>=MAX_PLAYERS;
+    const modeLabel = boardMode ? "보드게임" : "웹 전용";
+    return `
+      <li class="border rounded-lg p-3 flex flex-col gap-2">
+        <div class="flex items-center justify-between">
+          <div class="text-sm">
+            <div class="font-semibold">Room <span class="mono">${id}</span></div>
+            <div class="text-xs text-slate-500">방장: ${hostName || "-"}</div>
+          </div>
+          <div class="text-right text-xs text-slate-600">
+            <div>${started ? "진행중" : "대기중"}</div>
+            <div class="text-slate-400">${modeLabel}</div>
+          </div>
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="text-sm">인원: <b>${count}</b> / ${MAX_PLAYERS}</div>
+          <button data-join="${id}" class="btn bg-indigo-600 hover:bg-indigo-700 text-white rounded px-3 py-1.5 text-sm"
+            ${disabled ? "disabled" : ""}>입장</button>
+        </div>
+      </li>
+    `;
+  }
+
+  async function refreshRoomsOnce(){
+    try{
+      errJoinList.classList.add("hidden");
+      const snap = await getDocs(collection(db,"rooms"));
+      const all = [];
+      snap.forEach(docu=>{
+        const d=docu.data();
+        all.push({
+          id: d.id || docu.id,
+          hostName: d.hostName,
+          players: d.players||[],
+          started: !!d.started,
+          gameOver: d.gameOver===true,
+          createdAt: d.createdAt?.toMillis?.() || 0,
+          boardMode: d.boardMode===true
+        });
+      });
+      const rooms = all.filter(r=>!r.started && !r.gameOver)
+                       .sort((a,b)=>b.createdAt - a.createdAt)
+                       .slice(0,20);
+
+      listEl.innerHTML = rooms.map(roomCard).join("");
+      $("#roomsEmpty").classList.toggle("hidden", rooms.length!==0);
+
+      // 버튼 바인딩 → join.html로 이동
+      listEl.querySelectorAll("[data-join]").forEach(btn=>{
+        btn.addEventListener("click", async ()=>{
+          const roomId = btn.getAttribute("data-join"); // 대소문자 변경 금지
+          try{
+            const ref = doc(db,"rooms",roomId);
+            const snap = await getDoc(ref);
+            if(!snap.exists()) throw new Error("방이 삭제되었습니다.");
+            const r=snap.data();
+            const count = Array.isArray(r.players)? r.players.length : 0;
+            if (r.started || r.gameOver) throw new Error("이미 진행 중이거나 종료된 방입니다.");
+            if (count >= MAX_PLAYERS) throw new Error("정원이 가득 찼습니다.");
+            const baseDir = location.origin + location.pathname.replace(/[^/]+$/, "");
+            const url = new URL(baseDir + "join.html");
+            url.searchParams.set("room", roomId);
+            location.href = url.toString();
+          }catch(e){
+            errJoinList.textContent = e.message || e;
+            errJoinList.classList.remove("hidden");
+            refreshRoomsOnce();
+          }
+        });
+      });
+    }catch(e){
+      errJoinList.textContent = `방 목록을 불러오지 못했습니다: ${e.message||e}`;
+      errJoinList.classList.remove("hidden");
+    }
+  }
+  onSnapshot(collection(db,"rooms"), ()=> refreshRoomsOnce());
+  // 버그 수정: 핸들러에 함수 참조 전달
+  $("#btnRefresh").addEventListener("click", refreshRoomsOnce);
+  refreshRoomsOnce();
+
+  // ===== 내 방 복원 & 중복 생성 방지 =====
+  const ownRoomIdStorageKey = "ownRoomId";
+  let ownRoomId = localStorage.getItem(ownRoomIdStorageKey) || "";
+
+  async function bindHostRealtime(ref){
+    onSnapshot(ref, (s)=>{
+      if(!s.exists()){
+        // 방이 지워졌으면 기본 화면으로 복귀
+        show("#view-host", false);
+        show("#view-list", true);
+        show("#view-create", true);
+        localStorage.removeItem(ownRoomIdStorageKey);
+        ownRoomId = "";
+        refreshRoomsOnce();
+        return;
+      }
+      const data = s.data();
+      const ul=$("#waitList"); ul.innerHTML="";
+      (data.players||[]).forEach((p,i)=>{
+        const li=document.createElement("li");
+        li.className="flex items-center justify-between border rounded px-3 py-2";
+        li.innerHTML=`<span>${i+1}. ${p.name}</span>`;
+        ul.appendChild(li);
+      });
+      const n=(data.players||[]).length;
+      $("#count").textContent=n;
+      $("#btnStart").disabled=!(n>=3 && n<=MAX_PLAYERS);
+
+      // 진행 방식 안내
+      $("#modeInfo").textContent = data.boardMode ? "진행 방식: 보드게임(수동 상품 등록)" : "진행 방식: 웹 전용(자동 상품)";
+    });
+  }
+
+  async function bindStartButton(roomId){
+    $("#btnStart").onclick = async ()=>{
+      try{
+        const ref=doc(db,"rooms",roomId);
+        const snap=await getDoc(ref); 
+        if(!snap.exists()) return;
+        const r=snap.data(); const n=(r.players||[]).length;
+        if(n<3 || n>MAX_PLAYERS) return;
+        await updateDoc(ref,{ started:true, updatedAt:serverTimestamp() });
+        const baseDir = location.origin + location.pathname.replace(/[^/]+$/, "");
+        const gameUrl = new URL(baseDir + "game.html");
+        gameUrl.searchParams.set("room", roomId);
+        gameUrl.searchParams.set("name", r.hostName || "");
+        location.href = gameUrl.toString();
+      }catch(e){
+        $("#errHost").textContent=`시작 실패: ${e.message||e}`; $("#errHost").classList.remove("hidden");
+      }
+    };
+  }
+
+  function bindDeleteButton(ref){
+    $("#btnDeleteRoom").onclick = async ()=>{
+      try{
+        await deleteDoc(ref);
+        localStorage.removeItem(ownRoomIdStorageKey);
+        ownRoomId = "";
+        alert("방을 삭제했습니다.");
+        show("#view-host", false);
+        show("#view-list", true);
+        show("#view-create", true);
+        refreshRoomsOnce();
+      }catch(e){
+        $("#errHost").textContent=`삭제 실패: ${e.message||e}`;
+        $("#errHost").classList.remove("hidden");
+      }
+    };
+  }
+
+  async function tryRestoreOwnRoom(){
+    if(!ownRoomId) return false;
+    const ref = doc(db,"rooms", ownRoomId);
+    const snap = await getDoc(ref);
+    if(!snap.exists() || snap.data().gameOver===true){
+      localStorage.removeItem(ownRoomIdStorageKey);
+      ownRoomId = "";
+      return false;
+    }
+    // 복원 성공: 방장 화면만 표시
+    show("#view-list", false);
+    show("#view-create", false);
+    $("#roomId").textContent = ownRoomId;
+    $("#shareLink").value = snap.data().link || "";
+    show("#view-host", true);
+
+    await bindHostRealtime(ref);
+    await bindStartButton(ownRoomId);
+    bindDeleteButton(ref);
+    return true;
+  }
+  const restored = await tryRestoreOwnRoom();
+
+  // ===== 이름으로 방 ID 만들기(중복 시 2,3,… 부여) =====
+  async function makeRoomIdFromName(name){
+    const base = `${name}의 방`;
+    let candidate = base;
+    let idx = 2;
+    while(true){
+      const ref = doc(db,"rooms", candidate);
+      const snap = await getDoc(ref);
+      if(!snap.exists()) return candidate;
+      candidate = `${base} ${idx++}`;
+      if(idx>99) return `${base} ${Date.now()}`; // 비상 fallback
+    }
+  }
+
+  // ===== 새 방 만들기 =====
+  $("#btnCreate").addEventListener("click", async ()=>{
+    if(ownRoomId){
+      const errBox=$("#errCreate");
+      errBox.textContent="이미 생성한 방이 있습니다. 해당 방에서 진행하거나 방을 삭제한 후 새로 만들어 주세요.";
+      errBox.classList.remove("hidden");
+      return;
+    }
+    const name = ($("#hostName").value||"").trim();
+    const errBox=$("#errCreate");
+    if(!name){ errBox.textContent="닉네임을 입력하세요."; errBox.classList.remove("hidden"); return; }
+
+    // 진행 방식 읽기
+    const boardMode = (document.querySelector('input[name="mode"]:checked')?.value === 'board');
+
+    const roomId = await makeRoomIdFromName(name);
+    const baseDir = location.origin + location.pathname.replace(/[^/]+$/, "");
+    const joinUrl = new URL(baseDir + "join.html"); joinUrl.searchParams.set("room", roomId);
+
+    const room = {
+      id: roomId,
+      hostName: name,
+      link: joinUrl.toString(),
+      started: false,
+      gameOver: false,
+      round: 0,
+      boardMode: boardMode, // true=보드게임(수동), false=웹 전용(자동)
+      players: [
+        { id:"P1", name, balance:1000000, hold:0, bid:0, committed:false, readyPart:false, readyBid:false, willParticipate:null, items:[] }
+      ],
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    };
+
+    try{
+      await ensureAuth();
+      const ref = doc(db,"rooms",roomId);
+      await setDoc(ref, room);
+
+      ownRoomId = roomId;
+      localStorage.setItem(ownRoomIdStorageKey, ownRoomId);
+
+      // 방장 화면 표시
+      show("#view-list", false);
+      show("#view-create", false);
+      $("#roomId").textContent = roomId;
+      $("#shareLink").value = joinUrl.toString();
+      show("#view-host", true);
+
+      await bindHostRealtime(ref);
+      await bindStartButton(roomId);
+      bindDeleteButton(ref);
+
+      $("#btnCopy").onclick = async ()=>{
+        try{ await navigator.clipboard.writeText(joinUrl.toString());
+             const btn=$("#btnCopy"); btn.textContent="복사됨!"; setTimeout(()=>btn.textContent="복사",1200);
+        }catch(e){ $("#errHost").textContent=`복사 실패: ${e.message||e}`; $("#errHost").classList.remove("hidden"); }
+      };
+
+      // 15분 미시작 자동 삭제
+      setTimeout(async ()=>{
+        try{
+          const snap = await getDoc(ref);
+          if (snap.exists() && !snap.data().started) {
+            await deleteDoc(ref);
+            localStorage.removeItem(ownRoomIdStorageKey);
+            ownRoomId = "";
+            alert("15분 동안 시작되지 않아 방이 자동 삭제되었습니다.");
+            show("#view-host", false); show("#view-list", true); show("#view-create", true);
+            refreshRoomsOnce();
+          }
+        }catch(e){ console.warn("auto-clean failed:", e); }
+      }, 15 * 60 * 1000);
+
+    }catch(e){
+      errBox.textContent=`방 생성 실패: ${e.code||""} ${e.message||e}`; errBox.classList.remove("hidden");
+    }
+  });
+
+  // 복원 실패시에만 호스트 화면을 숨김
+  if (!restored) {
+    show("#view-host", false);
+    show("#view-list", true);
+    show("#view-create", true);
+  }
+</script>
+</body>
+</html>
